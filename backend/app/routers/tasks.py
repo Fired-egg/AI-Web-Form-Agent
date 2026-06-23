@@ -1,5 +1,7 @@
 """Task-related API endpoints."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -12,11 +14,12 @@ from app.schemas import (
     FormFieldResponse,
     MappingConfirmationResponse,
     ScreenshotResponse,
+    SubmissionConfirmationResponse,
     TaskCreate,
     TaskResponse,
 )
 from app.services.browser_executor import open_url_and_capture_screenshot
-from app.services.field_mapper import map_fields_by_rules
+from app.services.field_mapper import map_fields_by_rules, map_fields_with_llm
 from app.services.form_extractor import extract_form_fields
 from app.services.log_service import create_log
 
@@ -236,11 +239,14 @@ def list_task_screenshots(
 )
 def map_task_fields(
     task_id: int,
+    mode: Literal["rules", "llm"] = "rules",
     db: Session = Depends(get_db),
 ) -> list[FormField]:
-    """Generate and save rule-based mappings from the task's profile."""
+    """Generate and save rule-based or LLM-assisted profile mappings."""
 
     get_task_or_404(task_id, db)
+    if mode == "llm":
+        return map_fields_with_llm(task_id, db)
     return map_fields_by_rules(task_id, db)
 
 
@@ -312,3 +318,34 @@ def confirm_task_mapping(
     task.status = "MAPPING_READY"
     db.commit()
     return MappingConfirmationResponse(task_id=task.id, status=task.status)
+
+
+@router.post(
+    "/{task_id}/confirm-submit",
+    response_model=SubmissionConfirmationResponse,
+)
+def confirm_task_submission(
+    task_id: int,
+    db: Session = Depends(get_db),
+) -> SubmissionConfirmationResponse:
+    """Record user approval and complete the task without submitting the form."""
+
+    task = get_task_or_404(task_id, db)
+    if task.status != "WAITING_APPROVAL":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Task is not waiting for approval",
+        )
+
+    create_log(
+        task_id=task.id,
+        step=get_next_log_step(task.id, db),
+        action="confirm_submit",
+        message="User confirmed submission",
+        status="SUCCESS",
+        db=db,
+    )
+    task.status = "COMPLETED"
+    db.commit()
+
+    return SubmissionConfirmationResponse(task_id=task.id, status=task.status)

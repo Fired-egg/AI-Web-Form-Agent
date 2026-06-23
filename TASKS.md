@@ -7,26 +7,31 @@
 
 ## Milestone 1：项目初始化
 
-- [ ] 创建项目目录 `ai-web-form-agent`
-- [ ] 创建 `backend/`
-- [ ] 创建 `frontend/`
-- [ ] 创建 `docs/`
-- [ ] 创建 `AGENT_RULES.md`
-- [ ] 创建 `TASKS.md`
-- [ ] 初始化 Git 仓库
+- [x] 创建项目目录 `ai-web-form-agent`
+- [x] 创建 `backend/`
+- [x] 创建 `frontend/`
+- [x] 创建 `docs/`
+- [x] 创建 `AGENT_RULES.md`
+- [x] 创建 `TASKS.md`
+- [x] 初始化 Git 仓库
 
 ---
 
 ## Milestone 2：本地测试表单
 
-- [ ] 创建 `backend/examples/register.html`
-- [ ] 表单包含 full name
-- [ ] 表单包含 email
-- [ ] 表单包含 university
-- [ ] 表单包含 major
-- [ ] 表单包含 phone
-- [ ] 表单包含 submit button
-- [ ] 可以在浏览器中打开测试表单
+- [x] 创建 `backend/examples/register.html`
+- [x] 表单包含 full name
+- [x] 表单包含 email
+- [x] 表单包含 university
+- [x] 表单包含 major
+- [x] 表单包含 phone
+- [x] 表单包含 LinkedIn
+- [x] 表单包含 GitHub
+- [x] 表单包含 textarea，例如 self introduction
+- [x] 表单包含 select，例如 education level
+- [x] 表单包含 checkbox，例如 agree terms
+- [x] 表单包含 submit button
+- [x] 可以在浏览器中打开测试表单
 
 ---
 
@@ -150,7 +155,7 @@
 
 ## Milestone 11：项目包装
 
-- [ ] 写 README.md
+- [x] 写 README.md
 - [ ] 写 docs/architecture.md
 - [ ] 写 docs/demo-flow.md
 - [ ] 截图

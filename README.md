@@ -25,6 +25,12 @@ python -m pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
+Run the API from the `backend` directory:
+
+```powershell
+uvicorn app.main:app --reload
+```
+
 ## LLM Field Mapping
 
 Set one provider and its API key before starting the backend:
@@ -44,6 +50,17 @@ $env:GEMINI_MODEL="gemini-2.5-flash"
 Then call `POST /tasks/{task_id}/map-fields?mode=llm`. If configuration,
 network access, provider output, or validation fails, the endpoint safely uses
 the local rule mapper instead.
+
+## Frontend Setup
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend uses `http://localhost:8000` by default. To use another backend,
+copy `.env.example` to `.env.local` and change `VITE_API_BASE_URL`.
 
 ## Safety Boundaries
 

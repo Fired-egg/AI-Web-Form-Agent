@@ -66,3 +66,15 @@ class ActionLogResponse(BaseModel):
     message: str | None
     status: str
     created_at: datetime
+
+
+class ScreenshotResponse(BaseModel):
+    """Metadata for a screenshot captured during task execution."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    file_path: str
+    stage: str
+    created_at: datetime

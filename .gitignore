@@ -35,6 +35,9 @@ pnpm-debug.log*
 # Screenshots and browser artifacts
 screenshots/
 **/screenshots/
+!backend/screenshots/
+backend/screenshots/*
+!backend/screenshots/.gitkeep
 test-results/
 playwright-report/
 blob-report/

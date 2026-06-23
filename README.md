@@ -17,6 +17,14 @@ docs/       Architecture and project documentation
 - React and Vite
 - OpenAI API or Gemini API
 
+## Backend Setup
+
+```powershell
+cd backend
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+```
+
 ## Safety Boundaries
 
 - Never auto-submit a form without user approval.

@@ -49,12 +49,12 @@
 
 ## Milestone 4：Playwright 浏览器控制
 
-- [ ] 安装 Playwright
-- [ ] 安装 Chromium browser
-- [ ] 创建 `browser_executor.py`
-- [ ] 实现打开 URL
-- [ ] 实现等待页面加载
-- [ ] 实现截图保存
+- [x] 安装 Playwright
+- [x] 安装 Chromium browser
+- [x] 创建 `browser_executor.py`
+- [x] 实现打开 URL
+- [x] 实现等待页面加载
+- [x] 实现截图保存
 - [ ] `/run-task` 可以返回截图路径
 
 ---

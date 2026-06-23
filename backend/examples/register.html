@@ -48,17 +48,43 @@
       font-weight: 600;
     }
 
-    input {
+    input,
+    textarea,
+    select {
       width: 100%;
       padding: 11px 12px;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
+      background: #ffffff;
       font: inherit;
     }
 
-    input:focus {
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
       border-color: #2563eb;
       outline: 3px solid rgba(37, 99, 235, 0.15);
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .checkbox-group input {
+      width: auto;
+      margin-top: 3px;
+    }
+
+    .checkbox-group label {
+      margin: 0;
+      font-weight: 400;
     }
 
     button {
@@ -114,6 +140,43 @@
       <div class="form-group">
         <label for="phone">Phone</label>
         <input id="phone" name="phone" type="tel" autocomplete="tel" required>
+      </div>
+
+      <div class="form-group">
+        <label for="linkedin">LinkedIn</label>
+        <input id="linkedin" name="linkedin" type="url" placeholder="https://www.linkedin.com/in/username">
+      </div>
+
+      <div class="form-group">
+        <label for="github">GitHub</label>
+        <input id="github" name="github" type="url" placeholder="https://github.com/username">
+      </div>
+
+      <div class="form-group">
+        <label for="self-introduction">Self introduction</label>
+        <textarea
+          id="self-introduction"
+          name="self_introduction"
+          placeholder="Tell us about yourself"
+          required
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="education-level">Education level</label>
+        <select id="education-level" name="education_level" required>
+          <option value="">Select an education level</option>
+          <option value="high_school">High school</option>
+          <option value="associate">Associate degree</option>
+          <option value="bachelor">Bachelor's degree</option>
+          <option value="master">Master's degree</option>
+          <option value="doctorate">Doctorate</option>
+        </select>
+      </div>
+
+      <div class="form-group checkbox-group">
+        <input id="agree-terms" name="agree_terms" type="checkbox" required>
+        <label for="agree-terms">I agree to the terms and conditions</label>
       </div>
 
       <button type="submit">Submit registration</button>

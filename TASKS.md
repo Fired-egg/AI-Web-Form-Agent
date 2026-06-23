@@ -171,6 +171,32 @@
 
 ---
 
+## Milestone 16：React 前端基础
+
+- [x] 创建 React + Vite 项目
+- [x] 创建 `frontend/src/api.js`
+- [x] 配置 backend base URL
+- [x] 创建基础布局
+- [x] 创建导航栏
+- [x] 页面：Dashboard
+- [x] 页面：Profiles
+- [x] 页面：Create Task
+- [x] 页面：Task Detail
+- [x] 页面：Review Mapping
+
+---
+
+## Milestone 17：Profile 前端页面
+
+- [x] Profiles 页面展示 profile 列表
+- [x] 创建 Profile 表单
+- [x] 编辑 Profile
+- [x] 删除 Profile
+- [x] 表单包含 full_name、email、phone、university、major、linkedin、github、self_intro
+- [x] 调用 Profile API
+
+---
+
 ## 最小可交付版本 MVP
 
 完成这些就可以放进简历：

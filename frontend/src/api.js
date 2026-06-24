@@ -31,6 +31,7 @@ async function request(path, options = {}) {
 
 export const api = {
   health: () => request("/health"),
+  listLlmProviders: () => request("/llm/providers"),
 
   listProfiles: () => request("/profiles"),
   createProfile: (profile) =>
@@ -57,8 +58,19 @@ export const api = {
   listTaskScreenshots: (taskId) => request(`/tasks/${taskId}/screenshots`),
   analyzeTask: (taskId) =>
     request(`/tasks/${taskId}/analyze`, { method: "POST" }),
-  mapTaskFields: (taskId, mode) => {
-    const suffix = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+  mapTaskFields: (taskId, options = {}) => {
+    const params = new URLSearchParams();
+    if (typeof options === "string") {
+      params.set("mode", options);
+    } else {
+      if (options.mode) {
+        params.set("mode", options.mode);
+      }
+      if (options.provider) {
+        params.set("provider", options.provider);
+      }
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     return request(`/tasks/${taskId}/map-fields${suffix}`, { method: "POST" });
   },
   listTaskFields: (taskId) => request(`/tasks/${taskId}/fields`),

@@ -12,15 +12,33 @@ CORS_ORIGINS = [
     "http://127.0.0.1:5173",
 ]
 
-# LLM field mapping is optional. When the selected provider is not configured
-# or its request fails, the mapper automatically falls back to local rules.
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek").lower()
+# LLM field mapping is optional. The API exposes provider readiness so the
+# frontend can guide users before a request is made.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
 LLM_REQUEST_TIMEOUT_SECONDS = float(
     os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "30")
 )
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.5")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+
+LLM_PROVIDER_DETAILS = {
+    "openai": {
+        "display_name": "OpenAI",
+        "api_key_env": "OPENAI_API_KEY",
+        "model_env": "OPENAI_MODEL",
+    },
+    "gemini": {
+        "display_name": "Gemini",
+        "api_key_env": "GEMINI_API_KEY",
+        "model_env": "GEMINI_MODEL",
+    },
+    "deepseek": {
+        "display_name": "DeepSeek",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "model_env": "DEEPSEEK_MODEL",
+    },
+}

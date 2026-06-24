@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app import config
 from app.models import FormField, Profile, Task
 from app.routers.tasks import router as tasks_router
 
@@ -70,9 +71,11 @@ def create_task_with_field(session: Session) -> tuple[Task, FormField]:
 
 def test_map_fields_defaults_to_llm_mode(
     test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, session = test_environment
     task, field = create_task_with_field(session)
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-openai-key")
 
     with (
         patch("app.routers.tasks.map_fields_with_llm", return_value=[field]) as llm,
@@ -83,6 +86,40 @@ def test_map_fields_defaults_to_llm_mode(
     assert response.status_code == 200
     llm.assert_called_once()
     rules.assert_not_called()
+
+
+def test_map_fields_passes_selected_llm_provider(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-gemini-key")
+
+    with patch(
+        "app.routers.tasks.map_fields_with_llm",
+        return_value=[field],
+    ) as llm:
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=gemini")
+
+    assert response.status_code == 200
+    llm.assert_called_once_with(task.id, session, provider="gemini")
+
+
+def test_map_fields_reports_missing_provider_api_key(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", None)
+
+    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
+
+    assert response.status_code == 409
+    assert "DEEPSEEK_API_KEY" in response.json()["detail"]
+    llm.assert_not_called()
 
 
 def test_map_fields_supports_developer_rule_mode(

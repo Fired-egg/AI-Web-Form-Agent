@@ -16,7 +16,8 @@ from app.database import BACKEND_DIR
 from app.database import init_db
 from app.routers.profiles import router as profiles_router
 from app.routers.tasks import router as tasks_router
-from app.schemas import HealthResponse
+from app.schemas import HealthResponse, LLMProviderResponse
+from app.services.llm_provider_config import list_llm_providers
 
 
 @asynccontextmanager
@@ -55,3 +56,14 @@ async def health_check() -> HealthResponse:
     """Return the API health status."""
 
     return HealthResponse(status="ok")
+
+
+@app.get(
+    "/llm/providers",
+    response_model=list[LLMProviderResponse],
+    tags=["system"],
+)
+async def llm_providers() -> list[dict[str, object]]:
+    """Return selectable LLM providers and setup hints."""
+
+    return list_llm_providers()

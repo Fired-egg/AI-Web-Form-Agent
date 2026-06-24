@@ -15,7 +15,7 @@ docs/       Architecture and project documentation
 
 - Python, FastAPI, and Playwright
 - React and Vite
-- DeepSeek API, OpenAI API, or Gemini API
+- OpenAI API, Gemini API, or DeepSeek API
 
 ## Backend Setup
 
@@ -33,7 +33,8 @@ uvicorn app.main:app
 
 ## LLM Field Mapping
 
-Set one provider and its API key before starting the backend:
+The frontend lets you choose which LLM provider to use for semantic field
+mapping. Configure any provider you want available before starting the backend:
 
 ```powershell
 # DeepSeek (default)
@@ -41,22 +42,29 @@ $env:LLM_PROVIDER="deepseek"
 $env:DEEPSEEK_API_KEY="your-key"
 $env:DEEPSEEK_MODEL="deepseek-v4-flash"
 
-# Or OpenAI
+# OpenAI
 $env:LLM_PROVIDER="openai"
 $env:OPENAI_API_KEY="your-key"
-$env:OPENAI_MODEL="gpt-5.5"
+$env:OPENAI_MODEL="gpt-4.1-mini"
 
-# Or Gemini
+# Gemini
 $env:LLM_PROVIDER="gemini"
 $env:GEMINI_API_KEY="your-key"
 $env:GEMINI_MODEL="gemini-2.5-flash"
 ```
 
 The Agent uses LLM mapping by default when the frontend calls
-`POST /tasks/{task_id}/map-fields`. Developers can still compare behavior with
-`POST /tasks/{task_id}/map-fields?mode=rules` or force LLM mode explicitly with
-`?mode=llm`. If configuration, network access, provider output, or validation
-fails, the endpoint safely uses the local rule mapper instead.
+`POST /tasks/{task_id}/map-fields`. You can choose a provider with
+`?mode=llm&provider=openai`, `?provider=gemini`, or `?provider=deepseek`.
+Developers can still compare behavior with
+`POST /tasks/{task_id}/map-fields?mode=rules`.
+
+The backend exposes `GET /llm/providers` so the UI can show which providers are
+configured and which environment variable is missing. If a selected provider has
+no API key, the mapping endpoint returns a setup hint instead of silently using
+the wrong model. If the selected provider is configured but the network request,
+provider output, or validation fails, the mapper safely falls back to local
+rules.
 
 The LLM mapper can use derived profile keys for split-name forms:
 

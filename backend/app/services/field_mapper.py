@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from app import config
 from app.database import SessionLocal
 from app.models import FormField, Profile, Task
-from app.schemas import ProfileKey
+from app.schemas import LLMProvider, ProfileKey
+from app.services.llm_provider_config import resolve_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -380,6 +381,28 @@ def _extract_openai_output_text(response: dict[str, object]) -> str:
     raise ValueError("OpenAI response did not contain output text")
 
 
+def _extract_chat_completion_output_text(
+    response: dict[str, object],
+    provider_name: str,
+) -> str:
+    """Extract text from an OpenAI-compatible chat completion response."""
+
+    try:
+        choices = response["choices"]
+        if not isinstance(choices, list):
+            raise TypeError
+        message = choices[0]["message"]
+        content = message["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError(
+            f"{provider_name} response did not contain output text"
+        ) from exc
+
+    if not isinstance(content, str) or not content:
+        raise ValueError(f"{provider_name} response did not contain output text")
+    return content
+
+
 def _request_openai_mapping(prompt: str) -> str:
     """Request schema-constrained JSON from the OpenAI Responses API."""
 
@@ -422,12 +445,8 @@ def _request_gemini_mapping(prompt: str) -> str:
         {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "responseFormat": {
-                    "text": {
-                        "mimeType": "application/json",
-                        "schema": LLM_MAPPING_SCHEMA,
-                    }
-                }
+                "responseMimeType": "application/json",
+                "responseSchema": LLM_MAPPING_SCHEMA,
             },
         },
         {"x-goog-api-key": config.GEMINI_API_KEY},
@@ -439,29 +458,8 @@ def _request_gemini_mapping(prompt: str) -> str:
         raise ValueError("Gemini response did not contain output text") from exc
 
 
-def _extract_chat_completion_text(response: dict[str, object]) -> str:
-    """Extract message content from an OpenAI-compatible chat response."""
-
-    try:
-        choices = response["choices"]
-        if not isinstance(choices, list) or not choices:
-            raise ValueError
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            raise ValueError
-        message = first_choice["message"]
-        if not isinstance(message, dict):
-            raise ValueError
-        content = message["content"]
-        if not isinstance(content, str):
-            raise ValueError
-        return content
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("Chat completion response did not contain text") from exc
-
-
 def _request_deepseek_mapping(prompt: str) -> str:
-    """Request JSON mapping from DeepSeek's OpenAI-compatible chat API."""
+    """Request JSON field mappings from DeepSeek's OpenAI-compatible API."""
 
     if not config.DEEPSEEK_API_KEY:
         raise RuntimeError("DEEPSEEK_API_KEY is not configured")
@@ -474,30 +472,38 @@ def _request_deepseek_mapping(prompt: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "You map form fields to profile keys. Output valid "
-                        "JSON matching the requested schema only."
+                        "You map form fields to profile keys. Output valid JSON "
+                        "only, using this shape: "
+                        '{"mappings":[{"field_id":1,'
+                        '"mapped_profile_key":"email","confidence":0.9}]}.'
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
             "response_format": {"type": "json_object"},
+            "thinking": {"type": "disabled"},
+            "max_tokens": 2000,
             "stream": False,
         },
         {"Authorization": f"Bearer {config.DEEPSEEK_API_KEY}"},
     )
-    return _extract_chat_completion_text(response)
+    return _extract_chat_completion_output_text(response, "DeepSeek")
 
 
-def _request_llm_mapping(prompt: str) -> str:
+def _request_llm_mapping(
+    prompt: str,
+    provider: LLMProvider | None = None,
+) -> str:
     """Route the mapping request to the configured provider."""
 
-    if config.LLM_PROVIDER == "deepseek":
-        return _request_deepseek_mapping(prompt)
-    if config.LLM_PROVIDER == "openai":
+    selected_provider = resolve_llm_provider(provider)
+    if selected_provider == "openai":
         return _request_openai_mapping(prompt)
-    if config.LLM_PROVIDER == "gemini":
+    if selected_provider == "gemini":
         return _request_gemini_mapping(prompt)
-    raise ValueError("LLM_PROVIDER must be 'deepseek', 'openai', or 'gemini'")
+    if selected_provider == "deepseek":
+        return _request_deepseek_mapping(prompt)
+    raise ValueError("LLM_PROVIDER must be 'openai', 'gemini', or 'deepseek'")
 
 
 def _validate_llm_response(
@@ -552,7 +558,11 @@ def _apply_llm_mappings(
     return fields
 
 
-def _map_fields_with_llm(task_id: int, db: Session) -> list[FormField]:
+def _map_fields_with_llm(
+    task_id: int,
+    db: Session,
+    provider: LLMProvider | None = None,
+) -> list[FormField]:
     """Apply LLM mappings in an existing database session."""
 
     task = db.get(Task, task_id)
@@ -570,7 +580,7 @@ def _map_fields_with_llm(task_id: int, db: Session) -> list[FormField]:
 
     try:
         prompt = _build_llm_prompt(fields, profile)
-        raw_response = _request_llm_mapping(prompt)
+        raw_response = _request_llm_mapping(prompt, provider)
         result = _validate_llm_response(raw_response, fields, profile)
         return _apply_llm_mappings(fields, profile, result, db)
     except Exception as exc:
@@ -586,14 +596,15 @@ def _map_fields_with_llm(task_id: int, db: Session) -> list[FormField]:
 def map_fields_with_llm(
     task_id: int,
     db: Session | None = None,
+    provider: LLMProvider | None = None,
 ) -> list[FormField]:
     """Map fields with an LLM and safely fall back to local rules."""
 
     if db is not None:
-        return _map_fields_with_llm(task_id, db)
+        return _map_fields_with_llm(task_id, db, provider)
 
     with SessionLocal() as session:
-        fields = _map_fields_with_llm(task_id, session)
+        fields = _map_fields_with_llm(task_id, session, provider)
         for field in fields:
             session.expunge(field)
         return fields

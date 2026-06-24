@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
+import LlmMappingControls from "../components/LlmMappingControls";
 import Message from "../components/Message";
 
 const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image"]);
@@ -25,6 +26,9 @@ function TaskDetail() {
   const [logs, setLogs] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [llmProviders, setLlmProviders] = useState([]);
+  const [mappingMode, setMappingMode] = useState("llm");
+  const [selectedLlmProvider, setSelectedLlmProvider] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
@@ -36,12 +40,20 @@ function TaskDetail() {
       api.listTaskLogs(taskId),
       api.listTaskScreenshots(taskId),
       api.listProfiles(),
+      api.listLlmProviders(),
     ])
-      .then(([taskResult, logItems, screenshotItems, profileItems]) => {
+      .then(([taskResult, logItems, screenshotItems, profileItems, providerItems]) => {
         setTask(taskResult);
         setLogs(logItems);
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
+        setLlmProviders(providerItems);
+        setSelectedLlmProvider(
+          providerItems.find((provider) => provider.selected)?.id ||
+            providerItems.find((provider) => provider.configured)?.id ||
+            providerItems[0]?.id ||
+            "",
+        );
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
@@ -78,7 +90,10 @@ function TaskDetail() {
     setError("");
     setNotice("");
     try {
-      await api.mapTaskFields(taskId);
+      await api.mapTaskFields(taskId, {
+        mode: mappingMode,
+        provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
+      });
       await refreshTaskHistory();
       navigate(`/tasks/${taskId}/review-mapping`);
     } catch (requestError) {
@@ -97,6 +112,10 @@ function TaskDetail() {
     (task ? `Profile #${task.profile_id}` : "—");
   const isBusy = Boolean(busyAction);
   const hasMappedFields = task?.form_fields.some((field) => field.mapped_value);
+  const selectedProvider = llmProviders.find(
+    (provider) => provider.id === selectedLlmProvider,
+  );
+  const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
   const canFill = hasMappedFields && missingRequiredFields.length === 0;
 
@@ -150,6 +169,14 @@ function TaskDetail() {
                 </dd>
               </div>
             </dl>
+            <LlmMappingControls
+              mode={mappingMode}
+              onModeChange={setMappingMode}
+              provider={selectedLlmProvider}
+              onProviderChange={setSelectedLlmProvider}
+              providers={llmProviders}
+              disabled={isBusy}
+            />
             <div className="button-row">
               <button
                 className="button"
@@ -165,7 +192,7 @@ function TaskDetail() {
                 className="button button-secondary"
                 type="button"
                 onClick={mapFieldsAndReview}
-                disabled={isBusy || task.form_fields.length === 0}
+                disabled={isBusy || task.form_fields.length === 0 || llmUnavailable}
               >
                 {busyAction === "map" ? "Mapping..." : "Map Fields"}
               </button>

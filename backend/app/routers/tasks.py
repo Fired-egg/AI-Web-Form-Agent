@@ -12,6 +12,7 @@ from app.schemas import (
     ActionLogResponse,
     FormFieldMappingUpdate,
     FormFieldResponse,
+    LLMProvider,
     MappingConfirmationResponse,
     ScreenshotResponse,
     SubmissionConfirmationResponse,
@@ -28,6 +29,11 @@ from app.services.field_mapper import (
     map_fields_with_llm,
 )
 from app.services.form_extractor import extract_form_fields
+from app.services.llm_provider_config import (
+    get_provider_setup_hint,
+    is_provider_configured,
+    resolve_llm_provider,
+)
 from app.services.log_service import create_log
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -297,13 +303,26 @@ def list_task_screenshots(
 def map_task_fields(
     task_id: int,
     mode: Literal["rules", "llm"] = "llm",
+    provider: LLMProvider | None = None,
     db: Session = Depends(get_db),
 ) -> list[FormField]:
     """Generate and save Agent mappings, with a developer rule-mode override."""
 
     get_task_or_404(task_id, db)
     if mode == "llm":
-        return map_fields_with_llm(task_id, db)
+        try:
+            selected_provider = resolve_llm_provider(provider)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        if not is_provider_configured(selected_provider):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=get_provider_setup_hint(selected_provider),
+            )
+        return map_fields_with_llm(task_id, db, provider=selected_provider)
     return map_fields_by_rules(task_id, db)
 
 

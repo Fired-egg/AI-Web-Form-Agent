@@ -238,6 +238,33 @@ textarea {
   margin-top: 1rem;
 }
 
+.mapping-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 1rem;
+  align-items: end;
+  margin: 1rem 0;
+}
+
+.provider-status {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.45rem;
+}
+
+.provider-status-ok {
+  color: #22633f;
+  background: #ecf8f0;
+  border: 1px solid #b9dfc7;
+}
+
+.provider-status-warning {
+  color: #795118;
+  background: #fff8e8;
+  border: 1px solid #efd596;
+}
+
 .text-button {
   padding: 0;
   color: #3157b8;
@@ -411,7 +438,8 @@ th {
   }
 
   .card-grid,
-  .two-column {
+  .two-column,
+  .mapping-controls {
     grid-template-columns: 1fr;
   }
 }

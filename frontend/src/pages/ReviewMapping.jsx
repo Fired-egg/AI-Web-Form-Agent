@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import LlmMappingControls from "../components/LlmMappingControls";
 import Message from "../components/Message";
 
 const profileKeys = [
@@ -20,6 +21,9 @@ const profileKeys = [
 function ReviewMapping() {
   const { taskId } = useParams();
   const [fields, setFields] = useState([]);
+  const [llmProviders, setLlmProviders] = useState([]);
+  const [mappingMode, setMappingMode] = useState("llm");
+  const [selectedLlmProvider, setSelectedLlmProvider] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -29,7 +33,18 @@ function ReviewMapping() {
     setLoading(true);
     setError("");
     try {
-      setFields(await api.listTaskFields(taskId));
+      const [fieldItems, providerItems] = await Promise.all([
+        api.listTaskFields(taskId),
+        api.listLlmProviders(),
+      ]);
+      setFields(fieldItems);
+      setLlmProviders(providerItems);
+      setSelectedLlmProvider(
+        providerItems.find((provider) => provider.selected)?.id ||
+          providerItems.find((provider) => provider.configured)?.id ||
+          providerItems[0]?.id ||
+          "",
+      );
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -46,7 +61,12 @@ function ReviewMapping() {
     setError("");
     setNotice("");
     try {
-      setFields(await api.mapTaskFields(taskId));
+      setFields(
+        await api.mapTaskFields(taskId, {
+          mode: mappingMode,
+          provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
+        }),
+      );
       setNotice("Agent mappings generated.");
     } catch (requestError) {
       setError(requestError.message);
@@ -80,6 +100,11 @@ function ReviewMapping() {
     }
   }
 
+  const selectedProvider = llmProviders.find(
+    (provider) => provider.id === selectedLlmProvider,
+  );
+  const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
+
   return (
     <section>
       <div className="page-heading">
@@ -94,8 +119,22 @@ function ReviewMapping() {
       <Message type="error">{error}</Message>
       <Message type="success">{notice}</Message>
 
+      <LlmMappingControls
+        mode={mappingMode}
+        onModeChange={setMappingMode}
+        provider={selectedLlmProvider}
+        onProviderChange={setSelectedLlmProvider}
+        providers={llmProviders}
+        disabled={busy}
+      />
+
       <div className="button-row">
-        <button className="button" type="button" onClick={generateMappings} disabled={busy}>
+        <button
+          className="button"
+          type="button"
+          onClick={generateMappings}
+          disabled={busy || llmUnavailable}
+        >
           Generate mappings
         </button>
         <button

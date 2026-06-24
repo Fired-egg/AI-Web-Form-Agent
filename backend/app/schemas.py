@@ -25,6 +25,22 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
 
 
+LLMProvider = Literal["openai", "gemini", "deepseek"]
+
+
+class LLMProviderResponse(BaseModel):
+    """Configuration status for one selectable LLM provider."""
+
+    id: LLMProvider
+    display_name: str
+    model: str
+    model_env: str
+    api_key_env: str
+    configured: bool
+    selected: bool
+    setup_hint: str
+
+
 class ProfileBase(BaseModel):
     """Fields shared by profile create and response models."""
 

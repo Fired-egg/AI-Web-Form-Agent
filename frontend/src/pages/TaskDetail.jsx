@@ -3,6 +3,10 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
+import {
+  getSavedLlmProvider,
+  saveLlmProvider,
+} from "../llmProviderPreference";
 import Message from "../components/Message";
 
 const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image"]);
@@ -49,12 +53,7 @@ function TaskDetail() {
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
         setLlmProviders(providerItems);
-        setSelectedLlmProvider(
-          providerItems.find((provider) => provider.selected)?.id ||
-            providerItems.find((provider) => provider.configured)?.id ||
-            providerItems[0]?.id ||
-            "",
-        );
+        setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
@@ -102,6 +101,11 @@ function TaskDetail() {
     } finally {
       setBusyAction("");
     }
+  }
+
+  function updateSelectedLlmProvider(provider) {
+    setSelectedLlmProvider(provider);
+    saveLlmProvider(provider);
   }
 
   if (loading) {
@@ -174,7 +178,7 @@ function TaskDetail() {
               mode={mappingMode}
               onModeChange={setMappingMode}
               provider={selectedLlmProvider}
-              onProviderChange={setSelectedLlmProvider}
+              onProviderChange={updateSelectedLlmProvider}
               providers={llmProviders}
               disabled={isBusy}
             />

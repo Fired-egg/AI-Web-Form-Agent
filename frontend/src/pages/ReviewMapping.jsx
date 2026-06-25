@@ -3,6 +3,10 @@ import { Link, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
+import {
+  getSavedLlmProvider,
+  saveLlmProvider,
+} from "../llmProviderPreference";
 import Message from "../components/Message";
 
 const profileKeys = [
@@ -53,12 +57,7 @@ function ReviewMapping() {
       ]);
       setFields(fieldItems);
       setLlmProviders(providerItems);
-      setSelectedLlmProvider(
-        providerItems.find((provider) => provider.selected)?.id ||
-          providerItems.find((provider) => provider.configured)?.id ||
-          providerItems[0]?.id ||
-          "",
-      );
+      setSelectedLlmProvider(getSavedLlmProvider(providerItems));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -87,6 +86,11 @@ function ReviewMapping() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function updateSelectedLlmProvider(provider) {
+    setSelectedLlmProvider(provider);
+    saveLlmProvider(provider);
   }
 
   async function updateField(fieldId, changes) {
@@ -143,7 +147,7 @@ function ReviewMapping() {
         mode={mappingMode}
         onModeChange={setMappingMode}
         provider={selectedLlmProvider}
-        onProviderChange={setSelectedLlmProvider}
+        onProviderChange={updateSelectedLlmProvider}
         providers={llmProviders}
         disabled={busy}
       />

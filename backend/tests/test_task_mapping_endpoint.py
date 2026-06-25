@@ -89,7 +89,24 @@ def create_task_without_fields(session: Session) -> Task:
     return task
 
 
-def test_map_fields_defaults_to_llm_mode(
+def test_map_fields_requires_llm_provider_when_no_default_is_configured(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    monkeypatch.setattr(config, "LLM_PROVIDER", "")
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+
+    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+        response = client.post(f"/tasks/{task.id}/map-fields")
+
+    assert response.status_code == 400
+    assert "Choose an LLM provider" in response.json()["detail"]
+    llm.assert_not_called()
+
+
+def test_map_fields_uses_selected_deepseek_provider(
     test_environment: tuple[TestClient, Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -97,15 +114,14 @@ def test_map_fields_defaults_to_llm_mode(
     task, field = create_task_with_field(session)
     monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
-    with (
-        patch("app.routers.tasks.map_fields_with_llm", return_value=[field]) as llm,
-        patch("app.routers.tasks.map_fields_by_rules") as rules,
-    ):
-        response = client.post(f"/tasks/{task.id}/map-fields")
+    with patch(
+        "app.routers.tasks.map_fields_with_llm",
+        return_value=[field],
+    ) as llm:
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
 
     assert response.status_code == 200
     llm.assert_called_once_with(task.id, session, provider="deepseek")
-    rules.assert_not_called()
 
 
 def test_map_fields_passes_selected_llm_provider(

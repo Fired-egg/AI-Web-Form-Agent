@@ -5,13 +5,13 @@ import importlib
 from app import config
 
 
-def test_default_llm_provider_is_deepseek(monkeypatch) -> None:
+def test_default_llm_provider_is_empty(monkeypatch) -> None:
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
 
     reloaded_config = importlib.reload(config)
 
     try:
-        assert reloaded_config.LLM_PROVIDER == "deepseek"
+        assert reloaded_config.LLM_PROVIDER == ""
     finally:
         importlib.reload(config)
 

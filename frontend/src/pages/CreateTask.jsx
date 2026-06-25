@@ -69,6 +69,12 @@ function CreateTask() {
     }
   }
 
+  const selectedProvider = llmProviders.find(
+    (provider) => provider.id === selectedLlmProvider,
+  );
+  const mappingUnavailable =
+    !selectedLlmProvider || !selectedProvider?.configured;
+
   return (
     <section className="narrow-page">
       <div className="page-heading">
@@ -137,6 +143,16 @@ function CreateTask() {
             ))}
           </select>
         </label>
+        {!selectedLlmProvider && (
+          <p className="provider-status provider-status-warning">
+            Choose a model provider. This choice will be remembered.
+          </p>
+        )}
+        {selectedLlmProvider && selectedProvider && !selectedProvider.configured && (
+          <p className="provider-status provider-status-warning">
+            {selectedProvider.setup_hint}
+          </p>
+        )}
 
         {profiles.length === 0 && !loading && (
           <p>
@@ -151,7 +167,7 @@ function CreateTask() {
             saving ||
             loading ||
             profiles.length === 0 ||
-            !selectedLlmProvider
+            mappingUnavailable
           }
         >
           {saving ? "Creating, analyzing, and mapping..." : "Create task"}

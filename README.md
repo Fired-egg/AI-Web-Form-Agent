@@ -91,11 +91,11 @@ uvicorn app.main:app
 ## LLM Field Mapping
 
 The frontend lets you choose which LLM provider to use for semantic field
-mapping. Configure any provider you want available before starting the backend:
+mapping and remembers your last choice in the browser. Configure the API key for
+any provider you want available before starting the backend:
 
 ```powershell
-# DeepSeek (default)
-$env:LLM_PROVIDER="deepseek"
+# DeepSeek
 $env:DEEPSEEK_API_KEY="your-key"
 $env:DEEPSEEK_MODEL="deepseek-v4-flash"
 
@@ -113,7 +113,8 @@ $env:GEMINI_MODEL="gemini-2.5-flash"
 ```
 
 The Agent uses LLM mapping by default when the frontend calls
-`POST /tasks/{task_id}/map-fields`. You can choose a provider with
+`POST /tasks/{task_id}/map-fields`. The UI sends the provider you selected, for
+example
 `?mode=llm&provider=openai`, `?provider=gemini`, or `?provider=deepseek`.
 Developers can still compare behavior with
 `POST /tasks/{task_id}/map-fields?mode=rules`.

@@ -3,6 +3,10 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
+import {
+  getSavedLlmProvider,
+  saveLlmProvider,
+} from "../llmProviderPreference";
 import Message from "../components/Message";
 
 const nonFillableFieldTypes = new Set(["button", "submit", "reset", "image"]);
@@ -32,8 +36,8 @@ function TaskDetail() {
   const [selectedLlmProvider, setSelectedLlmProvider] = useState("");
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState("");
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [error, setError] = useState(location.state?.error || "");
+  const [notice, setNotice] = useState(location.state?.notice || "");
 
   useEffect(() => {
     if (location.state?.notice) {
@@ -56,12 +60,7 @@ function TaskDetail() {
         setScreenshots(screenshotItems);
         setProfiles(profileItems);
         setLlmProviders(providerItems);
-        setSelectedLlmProvider(
-          providerItems.find((provider) => provider.selected)?.id ||
-            providerItems.find((provider) => provider.configured)?.id ||
-            providerItems[0]?.id ||
-            "",
-        );
+        setSelectedLlmProvider(getSavedLlmProvider(providerItems));
       })
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
@@ -116,6 +115,35 @@ function TaskDetail() {
     }
   }
 
+  async function loginAnalyzeAndMap() {
+    setBusyAction("login");
+    setError("");
+    setNotice("");
+    try {
+      const analyzedTask = await api.loginAndAnalyzeTask(taskId);
+      await refreshTaskHistory(analyzedTask);
+      if (!llmUnavailable && selectedLlmProvider) {
+        await api.mapTaskFields(taskId, {
+          mode: mappingMode,
+          provider: selectedLlmProvider,
+        });
+        navigate(`/tasks/${taskId}/review-mapping`);
+        return;
+      }
+      setNotice("Login complete. Choose a model provider, then map fields.");
+    } catch (requestError) {
+      setError(requestError.message);
+      await refreshTaskHistory();
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  function updateSelectedLlmProvider(provider) {
+    setSelectedLlmProvider(provider);
+    saveLlmProvider(provider);
+  }
+
   if (loading) {
     return <p>Loading task...</p>;
   }
@@ -146,6 +174,13 @@ function TaskDetail() {
             </div>
             <span className="badge badge-large">{task.status}</span>
           </div>
+
+          {task.status === "LOGIN_REQUIRED" && (
+            <div className="message message-warning">
+              This site requires login before the form can be extracted. Log in
+              in the browser window, then close it to continue.
+            </div>
+          )}
 
           <article className="card">
             <dl className="detail-list">
@@ -186,16 +221,26 @@ function TaskDetail() {
               mode={mappingMode}
               onModeChange={setMappingMode}
               provider={selectedLlmProvider}
-              onProviderChange={setSelectedLlmProvider}
+              onProviderChange={updateSelectedLlmProvider}
               providers={llmProviders}
               disabled={isBusy}
             />
             <div className="button-row">
+              {task.status === "LOGIN_REQUIRED" && (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={loginAnalyzeAndMap}
+                  disabled={isBusy}
+                >
+                  {busyAction === "login" ? "Waiting for login..." : "Login and Continue"}
+                </button>
+              )}
               <button
                 className="button"
                 type="button"
                 onClick={analyzeAndReview}
-                disabled={isBusy || llmUnavailable}
+                disabled={isBusy || llmUnavailable || task.status === "LOGIN_REQUIRED"}
               >
                 {busyAction === "analyze" ? "Analyzing..." : "Analyze & Review"}
               </button>

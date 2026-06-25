@@ -1,19 +1,21 @@
 """Tests for the task field-mapping endpoint mode selection."""
 
 from collections.abc import Generator
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app import config
-from app.models import FormField, Profile, Task
+from app.models import ActionLog, FormField, Profile, Task
 from app.routers.tasks import router as tasks_router
+from app.services.form_extractor import ExtractedFormField
 
 
 @pytest.fixture
@@ -69,23 +71,57 @@ def create_task_with_field(session: Session) -> tuple[Task, FormField]:
     return task, field
 
 
-def test_map_fields_defaults_to_llm_mode(
+def create_task_without_fields(session: Session) -> Task:
+    """Create a task that has not been analyzed yet."""
+
+    profile = Profile(
+        profile_name="Analysis profile",
+        full_name="Ada Lovelace",
+        email="ada@example.com",
+    )
+    task = Task(
+        url="https://example.com/form",
+        profile=profile,
+        status="CREATED",
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
+def test_map_fields_requires_llm_provider_when_no_default_is_configured(
+    test_environment: tuple[TestClient, Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, session = test_environment
+    task, _ = create_task_with_field(session)
+    monkeypatch.setattr(config, "LLM_PROVIDER", "")
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
+
+    with patch("app.routers.tasks.map_fields_with_llm") as llm:
+        response = client.post(f"/tasks/{task.id}/map-fields")
+
+    assert response.status_code == 400
+    assert "Choose an LLM provider" in response.json()["detail"]
+    llm.assert_not_called()
+
+
+def test_map_fields_uses_selected_deepseek_provider(
     test_environment: tuple[TestClient, Session],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, session = test_environment
     task, field = create_task_with_field(session)
-    monkeypatch.setattr(config, "OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setattr(config, "DEEPSEEK_API_KEY", "test-deepseek-key")
 
-    with (
-        patch("app.routers.tasks.map_fields_with_llm", return_value=[field]) as llm,
-        patch("app.routers.tasks.map_fields_by_rules") as rules,
-    ):
-        response = client.post(f"/tasks/{task.id}/map-fields")
+    with patch(
+        "app.routers.tasks.map_fields_with_llm",
+        return_value=[field],
+    ) as llm:
+        response = client.post(f"/tasks/{task.id}/map-fields?provider=deepseek")
 
     assert response.status_code == 200
-    llm.assert_called_once()
-    rules.assert_not_called()
+    llm.assert_called_once_with(task.id, session, provider="deepseek")
 
 
 def test_map_fields_passes_selected_llm_provider(
@@ -182,3 +218,94 @@ def test_fill_rejects_missing_required_values_before_browser_work(
 
     assert response.status_code == 409
     assert "Required fields need values" in response.json()["detail"]
+
+
+def test_analyze_pauses_when_login_is_required(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task_without_fields(session)
+
+    with (
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                return_value=SimpleNamespace(fields=[], login_required=True),
+            ),
+        ) as extract_analysis,
+        patch("app.routers.tasks.prepare_login_session") as prepare_login,
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "LOGIN_REQUIRED"
+    assert response.json()["form_fields"] == []
+    assert extract_analysis.await_count == 1
+    prepare_login.assert_not_called()
+
+    logs = list(
+        session.scalars(
+            select(ActionLog)
+            .where(ActionLog.task_id == task.id)
+            .order_by(ActionLog.step)
+        )
+    )
+    assert [log.action for log in logs] == ["analyze_form", "login_required"]
+    assert logs[-1].status == "WAITING"
+
+
+def test_login_and_analyze_retries_original_url_after_manual_login(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    task.status = "LOGIN_REQUIRED"
+    session.commit()
+    extracted_field = ExtractedFormField(
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        required=True,
+    )
+
+    with (
+        patch(
+            "app.routers.tasks.prepare_login_session",
+            new=AsyncMock(return_value=("browser-session", False)),
+        ) as prepare_login,
+        patch(
+            "app.routers.tasks.extract_form_analysis",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    fields=[extracted_field],
+                    login_required=False,
+                ),
+            ),
+        ) as extract_analysis,
+    ):
+        response = client.post(f"/tasks/{task.id}/login-and-analyze")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "MAPPING_READY"
+    assert response.json()["form_fields"][0]["selector"] == "#email"
+    prepare_login.assert_awaited_once_with(
+        url=task.url,
+        profile_id=task.profile_id,
+    )
+    extract_analysis.assert_awaited_once_with(task.url, task.profile_id)
+
+    logs = list(
+        session.scalars(
+            select(ActionLog)
+            .where(ActionLog.task_id == task.id)
+            .order_by(ActionLog.step)
+        )
+    )
+    assert [log.action for log in logs] == [
+        "manual_login",
+        "resume_after_login",
+        "extract_fields",
+    ]

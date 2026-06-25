@@ -3,6 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
+import {
+  getSavedLlmProvider,
+  saveLlmProvider,
+} from "../llmProviderPreference";
 import Message from "../components/Message";
 
 const profileKeys = [
@@ -54,12 +58,7 @@ function ReviewMapping() {
       ]);
       setFields(fieldItems);
       setLlmProviders(providerItems);
-      setSelectedLlmProvider(
-        providerItems.find((provider) => provider.selected)?.id ||
-          providerItems.find((provider) => provider.configured)?.id ||
-          providerItems[0]?.id ||
-          "",
-      );
+      setSelectedLlmProvider(getSavedLlmProvider(providerItems));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -88,6 +87,11 @@ function ReviewMapping() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function updateSelectedLlmProvider(provider) {
+    setSelectedLlmProvider(provider);
+    saveLlmProvider(provider);
   }
 
   async function updateField(fieldId, changes) {
@@ -146,7 +150,7 @@ function ReviewMapping() {
         mode={mappingMode}
         onModeChange={setMappingMode}
         provider={selectedLlmProvider}
-        onProviderChange={setSelectedLlmProvider}
+        onProviderChange={updateSelectedLlmProvider}
         providers={llmProviders}
         disabled={busy}
       />
@@ -181,7 +185,7 @@ function ReviewMapping() {
         <p>Loading fields...</p>
       ) : fields.length === 0 ? (
         <div className="card empty-state">
-          <p>No fields found. Analyze the task first.</p>
+          <p>No fields found. Create the task again or check the task logs.</p>
         </div>
       ) : (
         <div className="table-wrapper card">

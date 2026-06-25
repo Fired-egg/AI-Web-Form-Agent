@@ -1,39 +1,40 @@
-"""Open web pages and capture screenshots with Playwright."""
+"""Open web pages, fill forms, and capture screenshots with Playwright."""
 
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Page
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from sqlalchemy.orm import Session
 
-from app.asyncio_compat import run_playwright_compatible
 from app.database import BACKEND_DIR, SessionLocal
 from app.models import FormField, Screenshot
+from app.services.browser_session import run_with_persistent_page
 
 SCREENSHOTS_DIR = BACKEND_DIR / "screenshots"
+NON_FILLABLE_FIELD_TYPES = {"button", "submit", "reset", "image"}
 
 
-async def open_url_and_capture_screenshot(
-    task_id: int,
-    url: str,
-    stage: str = "page_opened",
-    db: Session | None = None,
-) -> Screenshot:
-    """Open a URL, wait for it to load, and save a full-page screenshot."""
+def _new_screenshot_path(task_id: int) -> tuple[str, Path]:
+    """Create the screenshot directory and return a unique file path."""
 
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"task_{task_id}_{timestamp}_{uuid4().hex[:8]}.png"
     screenshot_path = SCREENSHOTS_DIR / filename
+    return screenshot_path.relative_to(BACKEND_DIR).as_posix(), screenshot_path
 
-    await run_playwright_compatible(
-        lambda: _open_url_and_save_screenshot(url, screenshot_path)
-    )
 
-    relative_path = screenshot_path.relative_to(BACKEND_DIR).as_posix()
+def _save_screenshot_record(
+    task_id: int,
+    relative_path: str,
+    stage: str,
+    db: Session | None,
+) -> Screenshot:
+    """Persist screenshot metadata using the provided or ad-hoc session."""
+
     screenshot = Screenshot(
         task_id=task_id,
         file_path=relative_path,
@@ -54,225 +55,111 @@ async def open_url_and_capture_screenshot(
     return screenshot
 
 
-async def _open_url_and_save_screenshot(url: str, screenshot_path: Path) -> None:
-    """Open a URL and save a full-page screenshot."""
+def _wait_for_network_idle(page: Page) -> None:
+    """Wait briefly for a page to settle without requiring idle forever."""
 
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
-        try:
-            page = await browser.new_page(viewport={"width": 1440, "height": 900})
-            await page.goto(url, wait_until="load", timeout=30_000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=5_000)
+    except PlaywrightTimeoutError:
+        pass
 
-            # Some pages continuously load background requests. A short
-            # network-idle wait improves screenshots without blocking forever.
+
+def _fill_fields(page: Page, fields: list[FormField]) -> None:
+    """Fill mapped fields on the current page."""
+
+    for field in fields:
+        if not field.mapped_value:
+            continue
+        field_type = (field.field_type or "").lower()
+        if field_type in NON_FILLABLE_FIELD_TYPES:
+            continue
+
+        locator = page.locator(field.selector).first
+        if field_type == "checkbox":
+            if field.mapped_value.lower() in {"1", "true", "yes", "on"}:
+                locator.check(timeout=5_000)
+            continue
+        if field_type == "radio":
+            locator.check(timeout=5_000)
+            continue
+        if field_type == "select":
             try:
-                await page.wait_for_load_state("networkidle", timeout=5_000)
-            except PlaywrightTimeoutError:
-                pass
+                locator.select_option(label=field.mapped_value, timeout=5_000)
+            except (PlaywrightError, PlaywrightTimeoutError):
+                locator.select_option(value=field.mapped_value, timeout=5_000)
+            continue
 
-            await page.screenshot(path=str(screenshot_path), full_page=True)
-        finally:
-            await browser.close()
+        locator.fill(field.mapped_value, timeout=5_000)
+
+
+async def open_url_and_capture_screenshot(
+    task_id: int,
+    url: str,
+    profile_id: int,
+    stage: str = "page_opened",
+    db: Session | None = None,
+) -> Screenshot:
+    """Open a URL, wait for it to load, and save a full-page screenshot."""
+
+    relative_path, screenshot_path = _new_screenshot_path(task_id)
+
+    def capture(page: Page) -> None:
+        page.goto(url, wait_until="load", timeout=30_000)
+        _wait_for_network_idle(page)
+        page.screenshot(path=str(screenshot_path), full_page=True)
+
+    await run_with_persistent_page(url, profile_id, capture)
+    return _save_screenshot_record(task_id, relative_path, stage, db)
 
 
 async def fill_form_and_capture_screenshot(
     task_id: int,
     url: str,
+    profile_id: int,
     fields: list[FormField],
     stage: str = "filled_form",
     db: Session | None = None,
 ) -> Screenshot:
     """Fill mapped input fields, stop before submission, and save a screenshot."""
 
-    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"task_{task_id}_{timestamp}_{uuid4().hex[:8]}.png"
-    screenshot_path = SCREENSHOTS_DIR / filename
+    relative_path, screenshot_path = _new_screenshot_path(task_id)
 
-    fillable_fields = [
-        {
-            "selector": field.selector,
-            "field_type": (field.field_type or "").lower(),
-            "mapped_value": field.mapped_value,
-        }
-        for field in fields
-        if field.mapped_value
-    ]
+    def fill_form(page: Page) -> None:
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        _wait_for_network_idle(page)
+        _fill_fields(page, fields)
+        page.screenshot(path=str(screenshot_path), full_page=True)
 
-    await run_playwright_compatible(
-        lambda: _fill_form_and_save_screenshot(url, fillable_fields, screenshot_path)
-    )
-
-    relative_path = screenshot_path.relative_to(BACKEND_DIR).as_posix()
-    screenshot = Screenshot(
-        task_id=task_id,
-        file_path=relative_path,
-        stage=stage,
-    )
-
-    if db is not None:
-        db.add(screenshot)
-        db.flush()
-        return screenshot
-
-    with SessionLocal() as session:
-        session.add(screenshot)
-        session.commit()
-        session.refresh(screenshot)
-        session.expunge(screenshot)
-
-    return screenshot
+    await run_with_persistent_page(url, profile_id, fill_form)
+    return _save_screenshot_record(task_id, relative_path, stage, db)
 
 
 async def submit_form_and_capture_screenshot(
     task_id: int,
     url: str,
+    profile_id: int,
     fields: list[FormField],
     stage: str = "submitted_form",
     db: Session | None = None,
 ) -> Screenshot:
     """Fill mapped input fields, click submit, and save a screenshot."""
 
-    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"task_{task_id}_{timestamp}_{uuid4().hex[:8]}.png"
-    screenshot_path = SCREENSHOTS_DIR / filename
+    relative_path, screenshot_path = _new_screenshot_path(task_id)
 
-    fillable_fields = [
-        {
-            "selector": field.selector,
-            "field_type": (field.field_type or "").lower(),
-            "mapped_value": field.mapped_value,
-        }
-        for field in fields
-        if field.mapped_value
-    ]
+    def submit_form(page: Page) -> None:
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        _wait_for_network_idle(page)
+        _fill_fields(page, fields)
 
-    await run_playwright_compatible(
-        lambda: _fill_submit_and_save_screenshot(url, fillable_fields, screenshot_path)
-    )
+        submit_button = page.locator(
+            'button[type="submit"], input[type="submit"], button:not([type])'
+        ).first
+        if submit_button.count() == 0:
+            raise RuntimeError("No submit button was found")
 
-    relative_path = screenshot_path.relative_to(BACKEND_DIR).as_posix()
-    screenshot = Screenshot(
-        task_id=task_id,
-        file_path=relative_path,
-        stage=stage,
-    )
+        submit_button.click(timeout=5_000)
+        _wait_for_network_idle(page)
+        page.screenshot(path=str(screenshot_path), full_page=True)
 
-    if db is not None:
-        db.add(screenshot)
-        db.flush()
-        return screenshot
-
-    with SessionLocal() as session:
-        session.add(screenshot)
-        session.commit()
-        session.refresh(screenshot)
-        session.expunge(screenshot)
-
-    return screenshot
-
-
-async def _fill_form_and_save_screenshot(
-    url: str,
-    fields: list[dict[str, str | None]],
-    screenshot_path: Path,
-) -> None:
-    """Fill mapped fields and save a full-page screenshot."""
-
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
-        try:
-            page = await browser.new_page(viewport={"width": 1440, "height": 900})
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5_000)
-            except PlaywrightTimeoutError:
-                pass
-
-            for field in fields:
-                mapped_value = field["mapped_value"]
-                if not mapped_value:
-                    continue
-                field_type = field["field_type"] or ""
-                if field_type in {"button", "submit", "reset", "image"}:
-                    continue
-
-                locator = page.locator(field["selector"]).first
-                if field_type == "checkbox":
-                    if mapped_value.lower() in {"1", "true", "yes", "on"}:
-                        await locator.check(timeout=5_000)
-                    continue
-                if field_type == "radio":
-                    await locator.check(timeout=5_000)
-                    continue
-                if field_type == "select":
-                    try:
-                        await locator.select_option(label=mapped_value, timeout=5_000)
-                    except (PlaywrightError, PlaywrightTimeoutError):
-                        await locator.select_option(value=mapped_value, timeout=5_000)
-                    continue
-
-                await locator.fill(mapped_value, timeout=5_000)
-
-            await page.screenshot(path=str(screenshot_path), full_page=True)
-        finally:
-            await browser.close()
-
-
-async def _fill_submit_and_save_screenshot(
-    url: str,
-    fields: list[dict[str, str | None]],
-    screenshot_path: Path,
-) -> None:
-    """Fill mapped fields, submit the form, and save a full-page screenshot."""
-
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
-        try:
-            page = await browser.new_page(viewport={"width": 1440, "height": 900})
-            await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5_000)
-            except PlaywrightTimeoutError:
-                pass
-
-            for field in fields:
-                mapped_value = field["mapped_value"]
-                if not mapped_value:
-                    continue
-                field_type = field["field_type"] or ""
-                if field_type in {"button", "submit", "reset", "image"}:
-                    continue
-
-                locator = page.locator(field["selector"]).first
-                if field_type == "checkbox":
-                    if mapped_value.lower() in {"1", "true", "yes", "on"}:
-                        await locator.check(timeout=5_000)
-                    continue
-                if field_type == "radio":
-                    await locator.check(timeout=5_000)
-                    continue
-                if field_type == "select":
-                    try:
-                        await locator.select_option(label=mapped_value, timeout=5_000)
-                    except (PlaywrightError, PlaywrightTimeoutError):
-                        await locator.select_option(value=mapped_value, timeout=5_000)
-                    continue
-
-                await locator.fill(mapped_value, timeout=5_000)
-
-            submit_button = page.locator(
-                'button[type="submit"], input[type="submit"], button:not([type])'
-            ).first
-            if await submit_button.count() == 0:
-                raise RuntimeError("No submit button was found")
-
-            await submit_button.click(timeout=5_000)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=5_000)
-            except PlaywrightTimeoutError:
-                pass
-            await page.screenshot(path=str(screenshot_path), full_page=True)
-        finally:
-            await browser.close()
+    await run_with_persistent_page(url, profile_id, submit_form)
+    return _save_screenshot_record(task_id, relative_path, stage, db)

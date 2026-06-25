@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
@@ -22,6 +22,7 @@ function needsRequiredInput(field) {
 function TaskDetail() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [task, setTask] = useState(null);
   const [logs, setLogs] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
@@ -33,6 +34,13 @@ function TaskDetail() {
   const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    if (location.state?.notice) {
+      setNotice(location.state.notice);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   useEffect(() => {
     Promise.all([
@@ -85,15 +93,20 @@ function TaskDetail() {
     }
   }
 
-  async function mapFieldsAndReview() {
-    setBusyAction("map");
+  function getMappingOptions() {
+    return {
+      mode: mappingMode,
+      provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
+    };
+  }
+
+  async function analyzeAndReview() {
+    setBusyAction("analyze");
     setError("");
     setNotice("");
     try {
-      await api.mapTaskFields(taskId, {
-        mode: mappingMode,
-        provider: mappingMode === "llm" ? selectedLlmProvider : undefined,
-      });
+      await api.analyzeTask(taskId);
+      await api.mapTaskFields(taskId, getMappingOptions());
       await refreshTaskHistory();
       navigate(`/tasks/${taskId}/review-mapping`);
     } catch (requestError) {
@@ -181,20 +194,10 @@ function TaskDetail() {
               <button
                 className="button"
                 type="button"
-                onClick={() =>
-                  runAction("analyze", () => api.analyzeTask(taskId), "Analysis complete.")
-                }
-                disabled={isBusy}
+                onClick={analyzeAndReview}
+                disabled={isBusy || llmUnavailable}
               >
-                {busyAction === "analyze" ? "Analyzing..." : "Analyze"}
-              </button>
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={mapFieldsAndReview}
-                disabled={isBusy || task.form_fields.length === 0 || llmUnavailable}
-              >
-                {busyAction === "map" ? "Mapping..." : "Map Fields"}
+                {busyAction === "analyze" ? "Analyzing..." : "Analyze & Review"}
               </button>
               <Link className="button button-secondary" to={`/tasks/${task.id}/review-mapping`}>
                 Review Mapping
@@ -203,7 +206,11 @@ function TaskDetail() {
                 className="button"
                 type="button"
                 onClick={() =>
-                  runAction("fill", () => api.fillTask(taskId), "Form filled. Review before submit.")
+                  runAction(
+                    "fill",
+                    () => api.fillTask(taskId),
+                    "Form filled. Review the screenshot before final submission.",
+                  )
                 }
                 disabled={isBusy || !canFill}
               >
@@ -217,12 +224,12 @@ function TaskDetail() {
                     runAction(
                       "confirm",
                       () => api.confirmSubmit(taskId),
-                      "Submission approval recorded.",
+                      "Form submitted after your approval.",
                     )
                   }
                   disabled={isBusy}
                 >
-                  {busyAction === "confirm" ? "Confirming..." : "Confirm Submit"}
+                  {busyAction === "confirm" ? "Submitting..." : "Submit Form"}
                 </button>
               )}
             </div>

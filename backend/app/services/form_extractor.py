@@ -137,6 +137,23 @@ _EXTRACT_FIELDS_SCRIPT = """
     return text;
   }
 
+  function cleanLabelText(value) {
+    const text = normalizeText(value);
+    if (!text) return null;
+    const withoutRequiredMarker = text
+      .replace(/^[*＊\\s]+/, "")
+      .replace(/[*＊\\s]+$/, "")
+      .replace(/^(必填|必选|required)\\s*[:：]?\\s*/i, "")
+      .replace(/\\s*(必填|必选|required)$/i, "")
+      .trim();
+    return withoutRequiredMarker || text;
+  }
+
+  function visibleTextFrom(node) {
+    if (!node || !isVisible(node)) return null;
+    return normalizeText(node.innerText || node.textContent);
+  }
+
   function isUnique(selector) {
     try {
       return document.querySelectorAll(selector).length === 1;
@@ -193,12 +210,12 @@ _EXTRACT_FIELDS_SCRIPT = """
   function labelFor(element) {
     const labels = element.labels
       ? Array.from(element.labels)
-          .map(label => normalizeText(label.innerText || label.textContent))
+          .map(label => cleanLabelText(label.innerText || label.textContent))
           .filter(Boolean)
       : [];
     if (labels.length) return labels.join(" ");
 
-    const ariaLabel = normalizeText(element.getAttribute("aria-label"));
+    const ariaLabel = cleanLabelText(element.getAttribute("aria-label"));
     if (ariaLabel) return ariaLabel;
 
     const labelledBy = element.getAttribute("aria-labelledby");
@@ -207,41 +224,64 @@ _EXTRACT_FIELDS_SCRIPT = """
         .split(/\\s+/)
         .map(id => document.getElementById(id))
         .filter(Boolean)
-        .map(node => normalizeText(node.innerText || node.textContent))
+        .map(node => cleanLabelText(node.innerText || node.textContent))
         .filter(Boolean)
         .join(" ");
       if (text) return text;
     }
 
-    const title = normalizeText(element.getAttribute("title"));
-    if (title) return title;
-
     const groupQuestion = questionFor(element);
     if (groupQuestion) return groupQuestion;
 
-    const placeholder = normalizeText(element.getAttribute("placeholder"));
+    const title = cleanLabelText(element.getAttribute("title"));
+    if (title) return title;
+
+    const placeholder = placeholderFor(element);
     if (placeholder) return placeholder;
 
     return null;
   }
 
   function formItemFor(element) {
-    return element.closest([
-      ".form-item",
-      ".form-group",
-      ".field",
-      ".ant-form-item",
-      ".el-form-item",
-      "[class*='form-item' i]",
-      "[class*='form_group' i]",
-      "[class*='field' i]",
-    ].join(", "));
+    let current = element.parentElement;
+    while (current && current !== document.body) {
+      const className =
+        typeof current.className === "string" ? current.className : "";
+      const normalizedClass = className.toLowerCase();
+      const isFormItemPart =
+        /(^|[-_\\s])(control|content|core|label|help|extra|feedback|message)([-_\\s]|$)/.test(
+          normalizedClass
+        ) || normalizedClass.includes("date-uxform-field-cascade");
+      const isDirectFormItem = current.matches([
+        ".form-item",
+        ".form-group",
+        ".next-form-item",
+        ".kuma-uxform-field",
+        ".ant-form-item",
+        ".el-form-item",
+        ".arco-form-item",
+        ".semi-form-field",
+        ".semi-form-field-wrapper",
+      ].join(", "));
+      const isNamedFormItem =
+        /form[-_]?item|form[-_]?field|formgroup|form_group|uxform[-_]?field/.test(
+          normalizedClass
+        );
+
+      if ((isDirectFormItem || isNamedFormItem) && !isFormItemPart) {
+        return current;
+      }
+
+      current = current.parentElement;
+    }
+
+    return element.closest(".field");
   }
 
   function questionFor(element) {
     const fieldset = element.closest("fieldset");
     if (fieldset) {
-      const legendText = normalizeText(
+      const legendText = cleanLabelText(
         fieldset.querySelector("legend")?.innerText ||
         fieldset.querySelector("legend")?.textContent
       );
@@ -251,17 +291,25 @@ _EXTRACT_FIELDS_SCRIPT = """
     const formItem = formItemFor(element);
     if (formItem) {
       const labelNode = formItem.querySelector([
+        ".kuma-label .label-content",
+        ".kuma-label",
+        ".next-form-item-label",
         ".label",
         ".title",
         ".question",
         ".ant-form-item-label",
+        ".ant-form-item-required",
         ".el-form-item__label",
+        ".arco-form-label-item",
+        ".semi-form-field-label",
         "label",
+        "[class*='item-label' i]",
+        "[class*='form-label' i]",
         "[class*='label' i]",
         "[class*='title' i]",
         "[class*='question' i]",
       ].join(", "));
-      const labelText = normalizeText(
+      const labelText = cleanLabelText(
         labelNode?.innerText || labelNode?.textContent
       );
       if (labelText) return labelText;
@@ -276,6 +324,53 @@ _EXTRACT_FIELDS_SCRIPT = """
     }
 
     return null;
+  }
+
+  function requiredFor(element, label) {
+    if (Boolean(element.required) || element.getAttribute("aria-required") === "true") {
+      return true;
+    }
+
+    const formItem = formItemFor(element);
+    const requiredContainer = element.closest('[aria-required="true"], [required]');
+    if (requiredContainer) return true;
+
+    if (formItem) {
+      const requiredNode = formItem.querySelector([
+        ".required",
+        ".ant-form-item-required",
+        ".el-form-item.is-required",
+        ".next-form-item-required",
+        ".semi-form-field-label-required",
+        ".arco-form-label-item-required",
+        "[class*='required' i]",
+        "[class*='asterisk' i]",
+      ].join(", "));
+      if (requiredNode && isVisible(requiredNode)) return true;
+
+      const labelText = visibleTextFrom(formItem.querySelector([
+        ".kuma-label",
+        ".next-form-item-label",
+        ".ant-form-item-label",
+        ".el-form-item__label",
+        ".arco-form-label-item",
+        ".semi-form-field-label",
+        "label",
+        "[class*='item-label' i]",
+        "[class*='form-label' i]",
+        "[class*='label' i]",
+      ].join(", ")));
+      if (/^[\\s*＊]+/.test(labelText || "") || /[*＊]/.test(labelText || "")) {
+        return true;
+      }
+
+      const validationText = visibleTextFrom(formItem);
+      if (/不能为空|不可为空|必填|必选|required|must not be empty|please enter/i.test(validationText || "")) {
+        return true;
+      }
+    }
+
+    return /^[\\s*＊]+/.test(label || "");
   }
 
   function textByIds(value) {
@@ -314,7 +409,9 @@ _EXTRACT_FIELDS_SCRIPT = """
   }
 
   function formTitleFor(element) {
-    const container = element.closest("form, section, article, [role='form']");
+    const container = element.closest(
+      "form, section, article, [role='form'], .uxcore-card, .form-card, [class*='form-card' i]"
+    );
     if (container) {
       const labelledText = textByIds(container.getAttribute("aria-labelledby"));
       if (labelledText) return labelledText;
@@ -323,7 +420,19 @@ _EXTRACT_FIELDS_SCRIPT = """
       if (ariaLabel) return ariaLabel;
 
       const heading = Array.from(
-        container.querySelectorAll("h1, h2, h3, h4, legend, [role='heading']")
+        container.querySelectorAll([
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "legend",
+          "[role='heading']",
+          ".uxcore-card-title",
+          ".next-card-title",
+          ".card-title",
+          "[class*='card-title' i]",
+          "[class*='section-title' i]",
+        ].join(", "))
       )
         .map(shortTextFrom)
         .find(Boolean);
@@ -367,10 +476,37 @@ _EXTRACT_FIELDS_SCRIPT = """
     return `${question} - ${ownLabel}`;
   }
 
+  function placeholderFor(element) {
+    const nativePlaceholder = normalizeText(element.getAttribute("placeholder"));
+    if (nativePlaceholder) return nativePlaceholder;
+
+    const formItem = formItemFor(element);
+    if (formItem) {
+      const componentPlaceholder = [
+        ".kuma-select2-selection__placeholder",
+        ".next-select-placeholder",
+        ".ant-select-selection-placeholder",
+        ".el-input__inner[placeholder]",
+        "[class*='placeholder' i]",
+      ]
+        .map(selector => formItem.querySelector(selector))
+        .filter(Boolean)
+        .map(node => normalizeText(
+          node.getAttribute("placeholder") ||
+          node.innerText ||
+          node.textContent
+        ))
+        .find(Boolean);
+      if (componentPlaceholder) return componentPlaceholder;
+    }
+
+    return null;
+  }
+
   function hasUsefulIdentity(element, label) {
     return Boolean(
       label ||
-      normalizeText(element.getAttribute("placeholder")) ||
+      placeholderFor(element) ||
       normalizeText(element.getAttribute("name")) ||
       normalizeText(element.id)
     );
@@ -410,13 +546,11 @@ _EXTRACT_FIELDS_SCRIPT = """
       label,
       selector: selectorFor(element),
       field_type: fieldType,
-      placeholder: normalizeText(element.getAttribute("placeholder")),
+      placeholder: placeholderFor(element),
       name: normalizeText(element.getAttribute("name")),
       html_id: normalizeText(element.id),
       current_value: currentValueFor(element, fieldType),
-      required:
-        Boolean(element.required) ||
-        element.getAttribute("aria-required") === "true",
+      required: requiredFor(element, label),
     };
     const key = fieldKey(field);
     if (seen.has(key)) return;

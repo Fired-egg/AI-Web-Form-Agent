@@ -2,17 +2,18 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
-import {
-  buildAgentTimeline,
-  fieldDisplayName,
-  isFillableField,
-} from "../agentTimeline";
+import { buildAgentTimeline, fieldDisplayName } from "../agentTimeline";
 import LlmMappingControls from "../components/LlmMappingControls";
 import {
   getSavedLlmProvider,
   saveLlmProvider,
 } from "../llmProviderPreference";
 import Message from "../components/Message";
+import {
+  getTaskRunState,
+  getTaskRunSummary,
+  isFillableField,
+} from "../taskRunState";
 
 function needsRequiredInput(field) {
   return field.required && isFillableField(field) && !field.mapped_value;
@@ -99,7 +100,12 @@ function TaskDetail() {
     setError("");
     setNotice("");
     try {
-      await api.analyzeTask(taskId);
+      const analyzedTask = await api.analyzeTask(taskId);
+      await refreshTaskHistory(analyzedTask);
+      if (analyzedTask.status === "LOGIN_REQUIRED") {
+        setNotice("Login is required before the form can be prepared.");
+        return;
+      }
       await api.mapTaskFields(taskId, getMappingOptions());
       await refreshTaskHistory();
       navigate(`/tasks/${taskId}/review-mapping`);
@@ -117,11 +123,8 @@ function TaskDetail() {
     try {
       const analyzedTask = await api.loginAndAnalyzeTask(taskId);
       await refreshTaskHistory(analyzedTask);
-      if (!llmUnavailable && selectedLlmProvider) {
-        await api.mapTaskFields(taskId, {
-          mode: mappingMode,
-          provider: selectedLlmProvider,
-        });
+      if (mappingMode === "rules" || (!llmUnavailable && selectedLlmProvider)) {
+        await api.mapTaskFields(taskId, getMappingOptions());
         navigate(`/tasks/${taskId}/review-mapping`);
         return;
       }
@@ -147,14 +150,58 @@ function TaskDetail() {
     profiles.find((profile) => profile.id === task?.profile_id)?.profile_name ||
     (task ? `Profile #${task.profile_id}` : "—");
   const isBusy = Boolean(busyAction);
-  const hasMappedFields = task?.form_fields.some((field) => field.mapped_value);
   const selectedProvider = llmProviders.find(
     (provider) => provider.id === selectedLlmProvider,
   );
   const llmUnavailable = mappingMode === "llm" && !selectedProvider?.configured;
   const missingRequiredFields = task?.form_fields.filter(needsRequiredInput) || [];
-  const canFill = hasMappedFields && missingRequiredFields.length === 0;
   const agentTimeline = buildAgentTimeline(logs, task?.form_fields || []);
+  const runState = getTaskRunState(task);
+  const runSummary = getTaskRunSummary(task);
+  const primaryDisabled =
+    isBusy ||
+    !runState.primaryAction ||
+    (runState.primaryAction === "prepare" && llmUnavailable);
+  const primaryLabelByBusyAction = {
+    prepare: "Preparing...",
+    login: "Waiting for login...",
+    fill: "Filling...",
+    approve: "Submitting...",
+  };
+  const primaryLabel =
+    isBusy && primaryLabelByBusyAction[runState.primaryAction]
+      ? primaryLabelByBusyAction[runState.primaryAction]
+      : runState.primaryLabel;
+
+  function runPrimaryAction() {
+    if (runState.primaryAction === "prepare") {
+      analyzeAndReview();
+      return;
+    }
+    if (runState.primaryAction === "login") {
+      loginAnalyzeAndMap();
+      return;
+    }
+    if (runState.primaryAction === "review") {
+      navigate(`/tasks/${taskId}/review-mapping`);
+      return;
+    }
+    if (runState.primaryAction === "fill") {
+      runAction(
+        "fill",
+        () => api.fillTask(taskId),
+        "Form filled. Review the screenshot before final submission.",
+      );
+      return;
+    }
+    if (runState.primaryAction === "approve") {
+      runAction(
+        "confirm",
+        () => api.confirmSubmit(taskId),
+        "Form submitted after your approval.",
+      );
+    }
+  }
 
   return (
     <section>
@@ -165,10 +212,10 @@ function TaskDetail() {
           <div className="page-heading">
             <div>
               <p className="eyebrow">Task #{task.id}</p>
-              <h2>Task Detail</h2>
+              <h2>Agent Run</h2>
               <p className="break-word">{task.url}</p>
             </div>
-            <span className="badge badge-large">{task.status}</span>
+            <span className="badge badge-large">{runState.statusLabel}</span>
           </div>
 
           {task.status === "LOGIN_REQUIRED" && (
@@ -178,19 +225,48 @@ function TaskDetail() {
             </div>
           )}
 
-          <article className="card">
-            <dl className="detail-list">
+          <article className="card run-panel">
+            <div className="run-panel-header">
               <div>
-                <dt>Status</dt>
-                <dd>{task.status}</dd>
+                <p className="eyebrow">Current result</p>
+                <h3>{runState.statusLabel}</h3>
+                <p>{runState.description}</p>
+              </div>
+              {runState.primaryAction && (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={runPrimaryAction}
+                  disabled={primaryDisabled}
+                >
+                  {primaryLabel}
+                </button>
+              )}
+            </div>
+
+            <div className="run-summary-grid" aria-label="Task run summary">
+              <div>
+                <strong>{runSummary.totalFields}</strong>
+                <span>Fields found</span>
               </div>
               <div>
-                <dt>URL</dt>
-                <dd>
-                  <a className="break-word" href={task.url} target="_blank" rel="noreferrer">
-                    {task.url}
-                  </a>
-                </dd>
+                <strong>{runSummary.mappedFields}</strong>
+                <span>Mapped</span>
+              </div>
+              <div>
+                <strong>{runSummary.missingRequiredFields}</strong>
+                <span>Need input</span>
+              </div>
+              <div>
+                <strong>{runSummary.skippedFields}</strong>
+                <span>Skipped</span>
+              </div>
+            </div>
+
+            <dl className="detail-list">
+              <div>
+                <dt>Raw status</dt>
+                <dd>{task.status}</dd>
               </div>
               <div>
                 <dt>Profile</dt>
@@ -213,67 +289,27 @@ function TaskDetail() {
                 </dd>
               </div>
             </dl>
-            <LlmMappingControls
-              mode={mappingMode}
-              onModeChange={setMappingMode}
-              provider={selectedLlmProvider}
-              onProviderChange={updateSelectedLlmProvider}
-              providers={llmProviders}
-              disabled={isBusy}
-            />
-            <div className="button-row">
-              {task.status === "LOGIN_REQUIRED" && (
-                <button
-                  className="button"
-                  type="button"
-                  onClick={loginAnalyzeAndMap}
-                  disabled={isBusy}
-                >
-                  {busyAction === "login" ? "Waiting for login..." : "Login and Continue"}
-                </button>
-              )}
-              <button
-                className="button"
-                type="button"
-                onClick={analyzeAndReview}
-                disabled={isBusy || llmUnavailable || task.status === "LOGIN_REQUIRED"}
-              >
-                {busyAction === "analyze" ? "Analyzing..." : "Analyze & Review"}
-              </button>
-              <Link className="button button-secondary" to={`/tasks/${task.id}/review-mapping`}>
-                Review Mapping
+
+            {(task.status === "CREATED" ||
+              task.status === "FAILED" ||
+              task.status === "LOGIN_REQUIRED") && (
+              <LlmMappingControls
+                mode={mappingMode}
+                onModeChange={setMappingMode}
+                provider={selectedLlmProvider}
+                onProviderChange={updateSelectedLlmProvider}
+                providers={llmProviders}
+                disabled={isBusy}
+              />
+            )}
+
+            {(task.status === "READY_TO_FILL" ||
+              task.status === "WAITING_APPROVAL" ||
+              task.status === "COMPLETED") && (
+              <Link className="text-button" to={`/tasks/${task.id}/review-mapping`}>
+                Review mapped values
               </Link>
-              <button
-                className="button"
-                type="button"
-                onClick={() =>
-                  runAction(
-                    "fill",
-                    () => api.fillTask(taskId),
-                    "Form filled. Review the screenshot before final submission.",
-                  )
-                }
-                disabled={isBusy || !canFill}
-              >
-                {busyAction === "fill" ? "Filling..." : "Fill Form"}
-              </button>
-              {task.status === "WAITING_APPROVAL" && (
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={() =>
-                    runAction(
-                      "confirm",
-                      () => api.confirmSubmit(taskId),
-                      "Form submitted after your approval.",
-                    )
-                  }
-                  disabled={isBusy}
-                >
-                  {busyAction === "confirm" ? "Submitting..." : "Submit Form"}
-                </button>
-              )}
-            </div>
+            )}
           </article>
 
           <section className="section-block">

@@ -70,6 +70,7 @@ class FormField(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    form_title: Mapped[Optional[str]] = mapped_column(String(500))
     label: Mapped[Optional[str]] = mapped_column(String(500))
     selector: Mapped[str] = mapped_column(String(1000), nullable=False)
     field_type: Mapped[Optional[str]] = mapped_column(String(100))

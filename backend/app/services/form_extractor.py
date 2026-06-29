@@ -12,6 +12,7 @@ from app.services.browser_session import run_with_persistent_page
 class ExtractedFormField:
     """A serializable form control discovered on a web page."""
 
+    form_title: str | None
     label: str | None
     selector: str
     field_type: str
@@ -126,6 +127,12 @@ _EXTRACT_FIELDS_SCRIPT = """
       "image",
       "file",
     ].includes(type);
+  }
+
+  function shortTextFrom(node) {
+    const text = normalizeText(node?.innerText || node?.textContent);
+    if (!text || text.length > 160) return null;
+    return text;
   }
 
   function isUnique(selector) {
@@ -269,6 +276,49 @@ _EXTRACT_FIELDS_SCRIPT = """
     return null;
   }
 
+  function textByIds(value) {
+    if (!value) return null;
+    const text = value
+      .split(/\\s+/)
+      .map(id => document.getElementById(id))
+      .filter(Boolean)
+      .map(shortTextFrom)
+      .filter(Boolean)
+      .join(" ");
+    return normalizeText(text);
+  }
+
+  function headingBefore(element) {
+    const headings = Array.from(
+      document.querySelectorAll("h1, h2, h3, h4, legend, [role='heading']")
+    ).filter(heading => {
+      if (!isVisible(heading)) return false;
+      const position = heading.compareDocumentPosition(element);
+      return Boolean(position & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    return shortTextFrom(headings.at(-1));
+  }
+
+  function formTitleFor(element) {
+    const container = element.closest("form, section, article, [role='form']");
+    if (container) {
+      const labelledText = textByIds(container.getAttribute("aria-labelledby"));
+      if (labelledText) return labelledText;
+
+      const ariaLabel = normalizeText(container.getAttribute("aria-label"));
+      if (ariaLabel) return ariaLabel;
+
+      const heading = Array.from(
+        container.querySelectorAll("h1, h2, h3, h4, legend, [role='heading']")
+      )
+        .map(shortTextFrom)
+        .find(Boolean);
+      if (heading) return heading;
+    }
+
+    return headingBefore(element);
+  }
+
   function displayLabelFor(element) {
     const ownLabel = labelFor(element);
     const type = (element.type || "").toLowerCase();
@@ -320,6 +370,7 @@ _EXTRACT_FIELDS_SCRIPT = """
     if (!hasUsefulIdentity(element, label)) return;
 
     const field = {
+      form_title: formTitleFor(element),
       label,
       selector: selectorFor(element),
       field_type: fieldType,

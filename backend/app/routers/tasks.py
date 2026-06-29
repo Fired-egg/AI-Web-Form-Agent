@@ -145,6 +145,7 @@ def save_extracted_fields(
         db.add(
             FormField(
                 task_id=task.id,
+                form_title=field.form_title,
                 label=field.label,
                 selector=field.selector,
                 field_type=field.field_type,

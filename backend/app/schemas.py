@@ -116,6 +116,7 @@ class FormFieldResponse(BaseModel):
 
     id: int
     task_id: int
+    form_title: str | None
     label: str | None
     selector: str
     field_type: str | None

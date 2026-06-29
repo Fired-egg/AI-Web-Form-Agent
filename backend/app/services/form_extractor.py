@@ -12,7 +12,9 @@ from app.services.browser_session import run_with_persistent_page
 class ExtractedFormField:
     """A serializable form control discovered on a web page."""
 
+    element_ref: str
     form_title: str | None
+    section_title: str | None
     label: str | None
     selector: str
     field_type: str
@@ -299,6 +301,18 @@ _EXTRACT_FIELDS_SCRIPT = """
     return shortTextFrom(headings.at(-1));
   }
 
+  function headingBeforeWithin(container, element) {
+    if (!container) return null;
+    const headings = Array.from(
+      container.querySelectorAll("h2, h3, h4, h5, legend, [role='heading']")
+    ).filter(heading => {
+      if (!isVisible(heading)) return false;
+      const position = heading.compareDocumentPosition(element);
+      return Boolean(position & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    return shortTextFrom(headings.at(-1));
+  }
+
   function formTitleFor(element) {
     const container = element.closest("form, section, article, [role='form']");
     if (container) {
@@ -317,6 +331,30 @@ _EXTRACT_FIELDS_SCRIPT = """
     }
 
     return headingBefore(element);
+  }
+
+  function sectionTitleFor(element, fieldLabel) {
+    const fieldset = element.closest("fieldset");
+    if (fieldset) {
+      const legendText = shortTextFrom(fieldset.querySelector("legend"));
+      if (legendText && legendText !== fieldLabel) return legendText;
+    }
+
+    const container = element.closest([
+      "[class*='section' i]",
+      "[class*='card' i]",
+      "[class*='panel' i]",
+      "[class*='collapse' i]",
+      "[class*='experience' i]",
+      "[class*='education' i]",
+      "section",
+      "article",
+      "li",
+    ].join(", "));
+    const heading = headingBeforeWithin(container, element);
+    if (heading && heading !== fieldLabel) return heading;
+
+    return null;
   }
 
   function displayLabelFor(element) {
@@ -339,9 +377,6 @@ _EXTRACT_FIELDS_SCRIPT = """
   }
 
   function fieldKey(field) {
-    if (field.name) return `${field.field_type}:name:${field.name}`;
-    if (field.html_id) return `${field.field_type}:id:${field.html_id}`;
-    if (field.label) return `${field.field_type}:label:${field.label}`;
     return `${field.field_type}:selector:${field.selector}`;
   }
 
@@ -371,6 +406,7 @@ _EXTRACT_FIELDS_SCRIPT = """
 
     const field = {
       form_title: formTitleFor(element),
+      section_title: sectionTitleFor(element, label),
       label,
       selector: selectorFor(element),
       field_type: fieldType,
@@ -386,6 +422,7 @@ _EXTRACT_FIELDS_SCRIPT = """
     if (seen.has(key)) return;
 
     seen.add(key);
+    field.element_ref = `field_${fields.length + 1}`;
     fields.push(field);
   });
 

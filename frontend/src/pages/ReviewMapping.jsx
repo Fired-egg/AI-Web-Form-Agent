@@ -29,14 +29,15 @@ function isFillableField(field) {
 }
 
 function fieldDisplayName(field) {
-  return field.label || field.name || field.placeholder || field.selector;
+  return field.field_label || field.label || field.name || field.hint || field.placeholder || field.selector;
 }
 
 function fieldHint(field) {
-  if (!field.placeholder || field.placeholder === fieldDisplayName(field)) {
+  const hint = field.hint || field.placeholder;
+  if (!hint || hint === fieldDisplayName(field)) {
     return "";
   }
-  return field.placeholder;
+  return hint;
 }
 
 function fieldFormTitle(field) {
@@ -44,6 +45,13 @@ function fieldFormTitle(field) {
     return "";
   }
   return field.form_title;
+}
+
+function fieldSectionTitle(field) {
+  if (!field.section_title || field.section_title === fieldDisplayName(field)) {
+    return "";
+  }
+  return field.section_title;
 }
 
 function needsRequiredInput(field) {
@@ -221,6 +229,11 @@ function ReviewMapping() {
                         Form: {fieldFormTitle(field)}
                       </small>
                     )}
+                    {fieldSectionTitle(field) && (
+                      <small className="field-meta">
+                        Section: {fieldSectionTitle(field)}
+                      </small>
+                    )}
                     <strong className="field-title">
                       Field: {fieldDisplayName(field)}
                     </strong>
@@ -237,6 +250,9 @@ function ReviewMapping() {
                       <small className="field-meta">
                         Current: {field.current_value}
                       </small>
+                    )}
+                    {field.element_ref && (
+                      <small className="field-ref">{field.element_ref}</small>
                     )}
                   </td>
                   <td>{field.field_type || "—"}</td>

@@ -70,7 +70,9 @@ class FormField(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    element_ref: Mapped[Optional[str]] = mapped_column(String(100))
     form_title: Mapped[Optional[str]] = mapped_column(String(500))
+    section_title: Mapped[Optional[str]] = mapped_column(String(500))
     label: Mapped[Optional[str]] = mapped_column(String(500))
     selector: Mapped[str] = mapped_column(String(1000), nullable=False)
     field_type: Mapped[Optional[str]] = mapped_column(String(100))
@@ -84,6 +86,18 @@ class FormField(Base):
     confidence: Mapped[Optional[float]] = mapped_column(Float)
 
     task: Mapped["Task"] = relationship(back_populates="form_fields")
+
+    @property
+    def field_label(self) -> Optional[str]:
+        """Semantic alias for the input's own title."""
+
+        return self.label
+
+    @property
+    def hint(self) -> Optional[str]:
+        """Semantic alias for the input placeholder/help text."""
+
+        return self.placeholder
 
 
 class ActionLog(Base):

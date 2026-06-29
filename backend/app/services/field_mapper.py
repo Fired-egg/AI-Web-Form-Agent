@@ -167,6 +167,7 @@ def _source_scores(field: FormField) -> Iterable[tuple[str, float]]:
     sources = (
         (field.label, 0.98),
         (field.placeholder, 0.94),
+        (field.section_title, 0.86),
         (field.form_title, 0.82),
         (field.selector, 0.90),
     )
@@ -293,7 +294,9 @@ def _fields_payload(fields: list[FormField]) -> list[dict[str, object]]:
     return [
         {
             "field_id": field.id,
+            "element_ref": field.element_ref,
             "form_title": field.form_title,
+            "section_title": field.section_title,
             "field_label": field.label,
             "selector": field.selector,
             "type": field.field_type,

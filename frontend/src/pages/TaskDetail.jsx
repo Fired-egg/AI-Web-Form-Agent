@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api, API_BASE_URL } from "../api";
 import LlmMappingControls from "../components/LlmMappingControls";
+import { formatChinaTime } from "../dateTime";
 import {
   getSavedLlmProvider,
   saveLlmProvider,
@@ -333,7 +334,7 @@ function TaskDetail() {
                     </a>
                     <p>
                       <strong>{screenshot.stage}</strong>
-                      <span>{new Date(screenshot.created_at).toLocaleString()}</span>
+                      <span>{formatChinaTime(screenshot.created_at)}</span>
                     </p>
                   </article>
                 ))}

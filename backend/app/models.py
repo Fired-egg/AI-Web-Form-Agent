@@ -1,5 +1,6 @@
 """SQLAlchemy models for profiles and form automation tasks."""
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -61,7 +62,7 @@ class Task(Base):
     form_fields: Mapped[list["FormField"]] = relationship(back_populates="task")
     action_logs: Mapped[list["ActionLog"]] = relationship(back_populates="task")
     screenshots: Mapped[list["Screenshot"]] = relationship(back_populates="task")
-    llm_usage_logs: Mapped[list["LLMApiUsageLog"]] = relationship(
+    llm_usage_logs: Mapped[list["LlmApiUsageLog"]] = relationship(
         back_populates="task"
     )
 
@@ -83,6 +84,7 @@ class FormField(Base):
     name: Mapped[Optional[str]] = mapped_column(String(500))
     html_id: Mapped[Optional[str]] = mapped_column(String(500))
     current_value: Mapped[Optional[str]] = mapped_column(Text)
+    field_options: Mapped[Optional[str]] = mapped_column("options", Text)
     required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mapped_profile_key: Mapped[Optional[str]] = mapped_column(String(100))
     mapped_value: Mapped[Optional[str]] = mapped_column(Text)
@@ -102,6 +104,30 @@ class FormField(Base):
 
         return self.placeholder
 
+    @property
+    def options(self) -> list[dict[str, str | None]]:
+        """Structured choices for select/radio-like fields."""
+
+        if not self.field_options:
+            return []
+        try:
+            options = json.loads(self.field_options)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(options, list):
+            return []
+        return [
+            option
+            for option in options
+            if isinstance(option, dict)
+        ]
+
+    @options.setter
+    def options(self, value: list[dict[str, str | None]] | None) -> None:
+        """Persist structured choices as JSON."""
+
+        self.field_options = json.dumps(value or [], ensure_ascii=False)
+
 
 class ActionLog(Base):
     """A chronological record of actions performed for a task."""
@@ -119,6 +145,27 @@ class ActionLog(Base):
     task: Mapped["Task"] = relationship(back_populates="action_logs")
 
 
+class LlmApiUsageLog(Base):
+    """Internal token and cache usage from one LLM API response."""
+
+    __tablename__ = "llm_api_usage_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_hit_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_miss_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    cache_hit_rate: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    task: Mapped["Task"] = relationship(back_populates="llm_usage_logs")
+
+
 class Screenshot(Base):
     """A screenshot captured during task execution."""
 
@@ -131,27 +178,6 @@ class Screenshot(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     task: Mapped["Task"] = relationship(back_populates="screenshots")
-
-
-class LLMApiUsageLog(Base):
-    """Token usage reported by an LLM provider for one task operation."""
-
-    __tablename__ = "llm_api_usage_logs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False)
-    provider: Mapped[str] = mapped_column(String(50), nullable=False)
-    model: Mapped[str] = mapped_column(String(100), nullable=False)
-    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    completion_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    cache_hit_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    cache_miss_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    cache_hit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    cache_hit_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-
-    task: Mapped["Task"] = relationship(back_populates="llm_usage_logs")
 
 
 class LLMMappingCache(Base):

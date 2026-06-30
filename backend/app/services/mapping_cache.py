@@ -63,6 +63,7 @@ def field_signature(field: FormField) -> str:
             "placeholder": field.placeholder,
             "name": field.name,
             "html_id": field.html_id,
+            "options": field.options,
             "required": field.required,
         }
     )

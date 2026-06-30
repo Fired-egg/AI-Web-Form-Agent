@@ -4,17 +4,13 @@ import json
 import unittest
 from unittest.mock import patch
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models import FormField, LLMApiUsageLog, Profile, Task
-from app.services.field_mapper import (
-    LLMMappingRequestResult,
-    _request_deepseek_mapping,
-    map_fields_with_llm,
-)
+from app.models import FormField, LlmApiUsageLog, Profile, Task
+from app.services.field_mapper import _request_deepseek_mapping, map_fields_with_llm
 
 
 class LLMFieldMapperTests(unittest.TestCase):
@@ -330,8 +326,8 @@ class LLMFieldMapperTests(unittest.TestCase):
         with (
             patch("app.services.field_mapper.config.LLM_PROVIDER", "deepseek"),
             patch(
-                "app.services.field_mapper._request_deepseek_mapping_result",
-                return_value=LLMMappingRequestResult(text=llm_json),
+                "app.services.field_mapper._request_deepseek_mapping",
+                return_value=llm_json,
             ) as deepseek,
         ):
             mapped = map_fields_with_llm(self.task_id, self.db)
@@ -383,50 +379,112 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "Bearer test-key")
         self.assertEqual(result, response["choices"][0]["message"]["content"])
 
-    def test_deepseek_usage_is_recorded_for_successful_mapping(self) -> None:
-        field = self._add_field(
-            label="Where should we send updates?",
-            selector="#contact-destination",
-        )
-        llm_json = json.dumps(
-            {
-                "mappings": [
-                    {
-                        "field_id": field.id,
-                        "mapped_profile_key": "email",
-                        "confidence": 0.92,
-                    }
-                ]
-            }
-        )
+    def test_deepseek_request_logs_usage_statistics(self) -> None:
         response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mappings": [
+                                    {
+                                        "field_id": 1,
+                                        "mapped_profile_key": "email",
+                                        "confidence": 0.9,
+                                    }
+                                ]
+                            }
+                        )
+                    }
+                }
+            ],
             "usage": {
-                "prompt_tokens": 979,
-                "completion_tokens": 197,
-                "total_tokens": 1176,
-                "prompt_cache_hit_tokens": 0,
-                "prompt_cache_miss_tokens": 979,
+                "prompt_tokens": 100,
+                "completion_tokens": 25,
+                "total_tokens": 125,
+                "prompt_cache_hit_tokens": 60,
+                "prompt_cache_miss_tokens": 40,
             },
-            "choices": [{"message": {"content": llm_json}}],
         }
 
         with (
             patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
-            patch("app.services.field_mapper.config.DEEPSEEK_MODEL", "deepseek-v4-flash"),
+            patch("app.services.field_mapper._post_json", return_value=response),
+            patch("app.services.field_mapper.logger.info") as log_info,
+        ):
+            _request_deepseek_mapping("Map this field")
+
+        log_info.assert_called_once()
+        message, usage_json = log_info.call_args.args
+        self.assertEqual(message, "DeepSeek API usage: %s")
+        self.assertEqual(
+            json.loads(usage_json),
+            {
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "prompt_tokens": 100,
+                "completion_tokens": 25,
+                "total_tokens": 125,
+                "cache_hit_tokens": 60,
+                "cache_miss_tokens": 40,
+                "cache_hit": True,
+                "cache_hit_rate": 0.6,
+            },
+        )
+
+    def test_deepseek_request_persists_usage_statistics(self) -> None:
+        response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "mappings": [
+                                    {
+                                        "field_id": 1,
+                                        "mapped_profile_key": "email",
+                                        "confidence": 0.9,
+                                    }
+                                ]
+                            }
+                        )
+                    }
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 30,
+                "total_tokens": 150,
+                "prompt_cache_hit_tokens": 80,
+                "prompt_cache_miss_tokens": 40,
+            },
+        }
+
+        with (
+            patch("app.services.field_mapper.config.DEEPSEEK_API_KEY", "test-key"),
             patch("app.services.field_mapper._post_json", return_value=response),
         ):
-            mapped = map_fields_with_llm(self.task_id, self.db, provider="deepseek")
+            _request_deepseek_mapping(
+                "Map this field",
+                task_id=self.task_id,
+                db=self.db,
+            )
 
-        usage_log = self.db.query(LLMApiUsageLog).one()
-        self.assertEqual(mapped[0].mapped_profile_key, "email")
-        self.assertEqual(usage_log.task_id, self.task_id)
+        usage_log = self.db.scalar(
+            select(LlmApiUsageLog).where(
+                LlmApiUsageLog.task_id == self.task_id
+            )
+        )
+        self.assertIsNotNone(usage_log)
         self.assertEqual(usage_log.provider, "deepseek")
         self.assertEqual(usage_log.model, "deepseek-v4-flash")
-        self.assertEqual(usage_log.prompt_tokens, 979)
-        self.assertEqual(usage_log.completion_tokens, 197)
-        self.assertEqual(usage_log.total_tokens, 1176)
-        self.assertFalse(usage_log.cache_hit)
-        self.assertEqual(usage_log.cache_miss_tokens, 979)
+        self.assertEqual(usage_log.prompt_tokens, 120)
+        self.assertEqual(usage_log.completion_tokens, 30)
+        self.assertEqual(usage_log.total_tokens, 150)
+        self.assertEqual(usage_log.cache_hit_tokens, 80)
+        self.assertEqual(usage_log.cache_miss_tokens, 40)
+        self.assertTrue(usage_log.cache_hit)
+        self.assertEqual(usage_log.cache_hit_rate, 80 / 120)
 
 
 if __name__ == "__main__":

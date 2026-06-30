@@ -1,4 +1,4 @@
-"""Tests for per-task LLM usage reporting."""
+"""Tests for LLM usage reporting endpoints."""
 
 from collections.abc import Generator
 
@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.models import LLMApiUsageLog, Profile, Task
+from app.models import LlmApiUsageLog, Profile, Task
+from app.routers.llm_usage import router as llm_usage_router
 from app.routers.tasks import router as tasks_router
 
 
@@ -31,6 +32,7 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
 
     test_app = FastAPI()
     test_app.include_router(tasks_router)
+    test_app.include_router(llm_usage_router)
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(test_app) as client:
@@ -41,11 +43,10 @@ def test_environment() -> Generator[tuple[TestClient, Session], None, None]:
     engine.dispose()
 
 
-def test_list_task_llm_usage_returns_usage_rows(
-    test_environment: tuple[TestClient, Session],
-) -> None:
-    client, session = test_environment
-    profile = Profile(profile_name="Usage profile", email="ada@example.com")
+def create_task(session: Session) -> Task:
+    """Create a task for usage reporting tests."""
+
+    profile = Profile(profile_name="Usage profile")
     task = Task(
         url="https://example.com/form",
         profile=profile,
@@ -53,47 +54,111 @@ def test_list_task_llm_usage_returns_usage_rows(
     )
     session.add(task)
     session.commit()
-    usage_log = LLMApiUsageLog(
-        task_id=task.id,
-        provider="deepseek",
-        model="deepseek-v4-flash",
-        prompt_tokens=979,
-        completion_tokens=197,
-        total_tokens=1176,
-        cache_hit_tokens=0,
-        cache_miss_tokens=979,
-        cache_hit=False,
-        cache_hit_rate=0.0,
+    return task
+
+
+def create_usage_log(
+    session: Session,
+    task_id: int,
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cache_hit_tokens: int,
+    cache_miss_tokens: int,
+) -> None:
+    """Persist one usage record for endpoint tests."""
+
+    session.add(
+        LlmApiUsageLog(
+            task_id=task_id,
+            provider="deepseek",
+            model="deepseek-v4-flash",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            cache_hit_tokens=cache_hit_tokens,
+            cache_miss_tokens=cache_miss_tokens,
+            cache_hit=cache_hit_tokens > 0,
+            cache_hit_rate=(
+                cache_hit_tokens / prompt_tokens if prompt_tokens else 0
+            ),
+        )
     )
-    session.add(usage_log)
     session.commit()
+
+
+def test_task_llm_usage_returns_items_and_summary(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task(session)
+    create_usage_log(
+        session,
+        task.id,
+        prompt_tokens=100,
+        completion_tokens=20,
+        cache_hit_tokens=60,
+        cache_miss_tokens=40,
+    )
+    create_usage_log(
+        session,
+        task.id,
+        prompt_tokens=50,
+        completion_tokens=10,
+        cache_hit_tokens=0,
+        cache_miss_tokens=50,
+    )
 
     response = client.get(f"/tasks/{task.id}/llm-usage")
 
     assert response.status_code == 200
-    assert response.json() == [
-        {
-            "id": usage_log.id,
-            "task_id": task.id,
-            "provider": "deepseek",
-            "model": "deepseek-v4-flash",
-            "prompt_tokens": 979,
-            "completion_tokens": 197,
-            "total_tokens": 1176,
-            "cache_hit_tokens": 0,
-            "cache_miss_tokens": 979,
-            "cache_hit": False,
-            "cache_hit_rate": 0.0,
-            "created_at": usage_log.created_at.isoformat(),
-        }
-    ]
+    assert response.json()["summary"] == {
+        "task_id": task.id,
+        "request_count": 2,
+        "prompt_tokens": 150,
+        "completion_tokens": 30,
+        "total_tokens": 180,
+        "cache_hit_tokens": 60,
+        "cache_miss_tokens": 90,
+        "cache_hit_rate": 0.4,
+    }
+    assert len(response.json()["items"]) == 2
+    assert response.json()["items"][0]["provider"] == "deepseek"
 
 
-def test_list_task_llm_usage_returns_404_for_missing_task(
+def test_global_llm_usage_summary_aggregates_all_tasks(
     test_environment: tuple[TestClient, Session],
 ) -> None:
-    client, _ = test_environment
+    client, session = test_environment
+    first_task = create_task(session)
+    second_task = create_task(session)
+    create_usage_log(
+        session,
+        first_task.id,
+        prompt_tokens=100,
+        completion_tokens=20,
+        cache_hit_tokens=50,
+        cache_miss_tokens=50,
+    )
+    create_usage_log(
+        session,
+        second_task.id,
+        prompt_tokens=200,
+        completion_tokens=40,
+        cache_hit_tokens=100,
+        cache_miss_tokens=100,
+    )
 
-    response = client.get("/tasks/999/llm-usage")
+    response = client.get("/llm-usage/summary")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": None,
+        "request_count": 2,
+        "prompt_tokens": 300,
+        "completion_tokens": 60,
+        "total_tokens": 360,
+        "cache_hit_tokens": 150,
+        "cache_miss_tokens": 150,
+        "cache_hit_rate": 0.5,
+    }

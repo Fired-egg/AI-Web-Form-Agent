@@ -97,20 +97,8 @@ class ActionLogResponse(BaseModel):
     created_at: datetime
 
 
-class ScreenshotResponse(BaseModel):
-    """Metadata for a screenshot captured during task execution."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    task_id: int
-    file_path: str
-    stage: str
-    created_at: datetime
-
-
-class LLMApiUsageLogResponse(BaseModel):
-    """Token usage reported by an LLM provider for one task."""
+class LlmApiUsageLogResponse(BaseModel):
+    """One internal LLM API usage record."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -125,6 +113,39 @@ class LLMApiUsageLogResponse(BaseModel):
     cache_miss_tokens: int
     cache_hit: bool
     cache_hit_rate: float
+    created_at: datetime
+
+
+class LlmUsageSummaryResponse(BaseModel):
+    """Aggregated LLM token and cache usage."""
+
+    task_id: int | None
+    request_count: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cache_hit_tokens: int
+    cache_miss_tokens: int
+    cache_hit_rate: float
+
+
+class TaskLlmUsageResponse(BaseModel):
+    """Task-specific LLM usage details plus totals."""
+
+    task_id: int
+    summary: LlmUsageSummaryResponse
+    items: list[LlmApiUsageLogResponse]
+
+
+class ScreenshotResponse(BaseModel):
+    """Metadata for a screenshot captured during task execution."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_id: int
+    file_path: str
+    stage: str
     created_at: datetime
 
 
@@ -147,6 +168,7 @@ class FormFieldResponse(BaseModel):
     name: str | None
     html_id: str | None
     current_value: str | None
+    options: list[dict[str, str | None]] = Field(default_factory=list)
     required: bool
     mapped_profile_key: str | None
     mapped_value: str | None

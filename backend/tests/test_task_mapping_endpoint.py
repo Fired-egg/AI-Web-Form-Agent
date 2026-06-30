@@ -380,6 +380,7 @@ def test_login_and_analyze_retries_original_url_after_manual_login(
         html_id="email",
         current_value=None,
         required=True,
+        options=[],
     )
 
     with (
@@ -419,4 +420,52 @@ def test_login_and_analyze_retries_original_url_after_manual_login(
         "manual_login",
         "resume_after_login",
         "extract_fields",
+    ]
+
+
+def test_analyze_persists_field_options_for_review(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task = create_task_without_fields(session)
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Application",
+        section_title="Preferences",
+        label="Preferred location",
+        selector="#remote",
+        field_type="radio",
+        placeholder=None,
+        name="location",
+        html_id="remote",
+        current_value=None,
+        required=True,
+        options=[
+            {"label": "Remote", "value": "remote", "selector": "#remote"},
+            {"label": "Office", "value": "office", "selector": "#office"},
+        ],
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ):
+        response = client.post(f"/tasks/{task.id}/analyze")
+
+    assert response.status_code == 200
+    assert response.json()["form_fields"][0]["options"] == [
+        {"label": "Remote", "value": "remote", "selector": "#remote"},
+        {"label": "Office", "value": "office", "selector": "#office"},
+    ]
+
+    saved_field = session.get(FormField, response.json()["form_fields"][0]["id"])
+    assert saved_field is not None
+    assert saved_field.options == [
+        {"label": "Remote", "value": "remote", "selector": "#remote"},
+        {"label": "Office", "value": "office", "selector": "#office"},
     ]

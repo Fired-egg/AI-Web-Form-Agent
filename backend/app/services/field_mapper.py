@@ -21,6 +21,7 @@ from app.services.mapping_cache import (
     build_mapping_cache_context,
     model_for_provider,
     read_cached_mapping_response,
+    read_user_override_response,
     write_mapping_cache_response,
 )
 
@@ -760,6 +761,22 @@ def _map_fields_with_llm(
     profile = _profile_payload(task)
 
     try:
+        fillable_fields = [field for field in fields if _is_fillable_field(field)]
+        override_response = read_user_override_response(
+            db,
+            fillable_fields,
+            profile,
+        )
+        if override_response is not None:
+            result = _validate_llm_response(override_response, fields, profile)
+            mapped_fields = _apply_llm_mappings(fields, profile, result, db)
+            logger.warning(
+                "User mapping override cache hit for task %s with %s mappings",
+                task_id,
+                len(result.mappings),
+            )
+            return mapped_fields
+
         try:
             selected_provider = resolve_llm_provider(provider)
         except ValueError:

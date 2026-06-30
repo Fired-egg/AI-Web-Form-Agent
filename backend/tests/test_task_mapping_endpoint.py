@@ -15,6 +15,7 @@ from app.database import Base, get_db
 from app import config
 from app.models import ActionLog, FormField, Profile, Task
 from app.routers.tasks import router as tasks_router
+from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
 
 
@@ -206,6 +207,49 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
 
     session.refresh(task)
     assert task.status == "READY_TO_FILL"
+
+
+def test_manual_mapping_correction_is_reused_before_llm(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+
+    response = client.put(
+        f"/tasks/{task.id}/fields/{field.id}",
+        json={"mapped_profile_key": "email"},
+    )
+
+    assert response.status_code == 200
+
+    second_profile = Profile(
+        profile_name="Second endpoint profile",
+        full_name="Grace Hopper",
+        email="grace@example.com",
+    )
+    second_task = Task(
+        url="https://example.com/form",
+        profile=second_profile,
+        status="MAPPING_READY",
+    )
+    second_field = FormField(
+        task=second_task,
+        label="Where can we reach you?",
+        selector="#contact",
+        field_type="email",
+        required=True,
+    )
+    session.add(second_task)
+    session.add(second_field)
+    session.commit()
+
+    with patch("app.services.field_mapper._request_llm_mapping") as request_mapping:
+        mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
+
+    request_mapping.assert_not_called()
+    assert mapped[0].mapped_profile_key == "email"
+    assert mapped[0].mapped_value == "grace@example.com"
+    assert mapped[0].confidence == 1.0
 
 
 def test_fill_rejects_missing_required_values_before_browser_work(

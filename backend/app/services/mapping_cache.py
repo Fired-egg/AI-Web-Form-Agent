@@ -4,12 +4,12 @@ import json
 from dataclasses import dataclass
 from hashlib import sha256
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import config
-from app.models import FormField, LLMMappingCache, utc_now
-from app.schemas import LLMProvider
+from app.models import FormField, LLMMappingCache, UserMappingOverrideCache, utc_now
+from app.schemas import LLMProvider, ProfileKey
 
 PROMPT_VERSION = "field-mapping-v1"
 
@@ -204,3 +204,93 @@ def write_mapping_cache_response(
         return
 
     entry.response_json = json.dumps({"mappings": cached_mappings}, ensure_ascii=False)
+
+
+def save_user_mapping_override(
+    db: Session,
+    field: FormField,
+    mapped_profile_key: ProfileKey | None,
+) -> None:
+    """Remember or clear a user-confirmed mapping for a stable field."""
+
+    signature = field_signature(field)
+    if mapped_profile_key is None:
+        db.execute(
+            delete(UserMappingOverrideCache).where(
+                UserMappingOverrideCache.field_signature == signature
+            )
+        )
+        return
+
+    entry = db.scalar(
+        select(UserMappingOverrideCache).where(
+            UserMappingOverrideCache.field_signature == signature
+        )
+    )
+    if entry is None:
+        db.add(
+            UserMappingOverrideCache(
+                field_signature=signature,
+                mapped_profile_key=mapped_profile_key,
+                confidence=1.0,
+            )
+        )
+        return
+
+    entry.mapped_profile_key = mapped_profile_key
+    entry.confidence = 1.0
+
+
+def read_user_override_response(
+    db: Session,
+    fields: list[FormField],
+    profile: dict[str, str],
+) -> str | None:
+    """Return current-field-id mappings from user-confirmed overrides."""
+
+    signatures_by_field_id = {
+        field.id: field_signature(field)
+        for field in fields
+    }
+    if not signatures_by_field_id:
+        return None
+
+    entries = list(
+        db.scalars(
+            select(UserMappingOverrideCache).where(
+                UserMappingOverrideCache.field_signature.in_(
+                    signatures_by_field_id.values()
+                )
+            )
+        )
+    )
+    entries_by_signature = {
+        entry.field_signature: entry
+        for entry in entries
+        if entry.mapped_profile_key in profile
+    }
+
+    current_mappings: list[dict[str, object]] = []
+    used_entries: list[UserMappingOverrideCache] = []
+    for field in fields:
+        entry = entries_by_signature.get(signatures_by_field_id[field.id])
+        if entry is None:
+            continue
+        current_mappings.append(
+            {
+                "field_id": field.id,
+                "mapped_profile_key": entry.mapped_profile_key,
+                "confidence": entry.confidence,
+            }
+        )
+        used_entries.append(entry)
+
+    if not current_mappings or len(current_mappings) != len(fields):
+        return None
+
+    now = utc_now()
+    for entry in used_entries:
+        entry.hit_count += 1
+        entry.last_used_at = now
+
+    return json.dumps({"mappings": current_mappings}, ensure_ascii=False)

@@ -170,3 +170,17 @@ class LLMMappingCache(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class UserMappingOverrideCache(Base):
+    """User-confirmed field mapping preference for one stable field signature."""
+
+    __tablename__ = "user_mapping_override_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    field_signature: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    mapped_profile_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

@@ -39,6 +39,7 @@ from app.services.llm_provider_config import (
 )
 from app.services.llm_usage_service import list_llm_usage_logs
 from app.services.log_service import create_log
+from app.services.mapping_cache import save_user_mapping_override
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -422,6 +423,7 @@ def update_task_field_mapping(
         elif "mapped_value" not in changes:
             field.mapped_value = get_profile_value(task.profile, profile_key)
             field.confidence = 1.0 if field.mapped_value is not None else None
+        save_user_mapping_override(db, field, profile_key)
 
     if "mapped_value" in changes:
         field.mapped_value = changes["mapped_value"]

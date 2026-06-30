@@ -115,9 +115,18 @@ test("needsMappingReview only highlights fields that need attention", () => {
       field_type: "text",
       required: false,
       mapped_value: "Alice",
-      confidence: 0.79,
+      confidence: 0.69,
     }),
     true,
+  );
+  assert.equal(
+    needsMappingReview({
+      field_type: "text",
+      required: false,
+      mapped_value: "Alice",
+      confidence: 0.7,
+    }),
+    false,
   );
   assert.equal(
     needsMappingReview({

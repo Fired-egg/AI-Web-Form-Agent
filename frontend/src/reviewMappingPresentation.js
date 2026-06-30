@@ -85,7 +85,7 @@ export function needsMappingReview(field) {
   if (field.confidence === null || field.confidence === undefined) {
     return true;
   }
-  return field.confidence < 0.9;
+  return field.confidence < 0.7;
 }
 
 export function formatConfidence(confidence) {

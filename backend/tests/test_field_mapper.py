@@ -89,12 +89,12 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(mapped[0].mapped_value, "ada@example.com")
         self.assertEqual(mapped[0].confidence, 0.93)
 
-    def test_reuses_cached_mapping_for_same_form_and_current_profile_value(self) -> None:
+    def test_calls_provider_for_same_form_to_surface_provider_cache_usage(self) -> None:
         first_field = self._add_field(
             label="Where should we send updates?",
             selector="#contact-destination",
         )
-        llm_json = json.dumps(
+        first_llm_json = json.dumps(
             {
                 "mappings": [
                     {
@@ -123,10 +123,21 @@ class LLMFieldMapperTests(unittest.TestCase):
             label="Where should we send updates?",
             selector="#contact-destination",
         )
+        second_llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": second_field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 0.93,
+                    }
+                ]
+            }
+        )
 
         with patch(
             "app.services.field_mapper._request_llm_mapping",
-            return_value=llm_json,
+            side_effect=[first_llm_json, second_llm_json],
         ) as request_mapping:
             first_mapping = map_fields_with_llm(
                 self.task_id,
@@ -139,7 +150,7 @@ class LLMFieldMapperTests(unittest.TestCase):
                 provider="deepseek",
             )
 
-        request_mapping.assert_called_once()
+        self.assertEqual(request_mapping.call_count, 2)
         self.assertEqual(first_mapping[0].mapped_value, "ada@example.com")
         self.assertEqual(second_mapping[0].id, second_field.id)
         self.assertEqual(second_mapping[0].mapped_profile_key, "email")

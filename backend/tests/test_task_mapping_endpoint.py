@@ -1,5 +1,6 @@
 """Tests for the task field-mapping endpoint mode selection."""
 
+import json
 from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -209,7 +210,7 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
     assert task.status == "READY_TO_FILL"
 
 
-def test_manual_mapping_correction_is_reused_before_llm(
+def test_manual_mapping_correction_does_not_skip_llm_call(
     test_environment: tuple[TestClient, Session],
 ) -> None:
     client, session = test_environment
@@ -243,13 +244,28 @@ def test_manual_mapping_correction_is_reused_before_llm(
     session.add(second_field)
     session.commit()
 
-    with patch("app.services.field_mapper._request_llm_mapping") as request_mapping:
+    llm_json = json.dumps(
+        {
+            "mappings": [
+                {
+                    "field_id": second_field.id,
+                    "mapped_profile_key": "email",
+                    "confidence": 0.93,
+                }
+            ]
+        }
+    )
+
+    with patch(
+        "app.services.field_mapper._request_llm_mapping",
+        return_value=llm_json,
+    ) as request_mapping:
         mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
 
-    request_mapping.assert_not_called()
+    request_mapping.assert_called_once()
     assert mapped[0].mapped_profile_key == "email"
     assert mapped[0].mapped_value == "grace@example.com"
-    assert mapped[0].confidence == 1.0
+    assert mapped[0].confidence == 0.93
 
 
 def test_fill_rejects_missing_required_values_before_browser_work(

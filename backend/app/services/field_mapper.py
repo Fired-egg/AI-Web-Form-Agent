@@ -16,13 +16,6 @@ from app.models import FormField, Profile, Task
 from app.schemas import LLMProvider, ProfileKey
 from app.services.llm_provider_config import resolve_llm_provider
 from app.services.llm_usage_service import record_llm_api_usage
-from app.services.mapping_cache import (
-    build_mapping_cache_context,
-    model_for_provider,
-    read_cached_mapping_response,
-    read_user_override_response,
-    write_mapping_cache_response,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -686,45 +679,10 @@ def _map_fields_with_llm(
     profile = _profile_payload(task)
 
     try:
-        fillable_fields = [field for field in fields if _is_fillable_field(field)]
-        override_response = read_user_override_response(
-            db,
-            fillable_fields,
-            profile,
-        )
-        if override_response is not None:
-            result = _validate_llm_response(override_response, fields, profile)
-            mapped_fields = _apply_llm_mappings(fields, profile, result, db)
-            logger.warning(
-                "User mapping override cache hit for task %s with %s mappings",
-                task_id,
-                len(result.mappings),
-            )
-            return mapped_fields
-
         try:
             selected_provider = resolve_llm_provider(provider)
         except ValueError:
             selected_provider = provider
-
-        cache_context = None
-        if selected_provider is not None:
-            cache_context = build_mapping_cache_context(
-                provider=selected_provider,
-                model=model_for_provider(selected_provider),
-                fields=fields,
-                profile=profile,
-            )
-            cached_response = read_cached_mapping_response(db, cache_context, fields)
-            if cached_response is not None:
-                result = _validate_llm_response(cached_response, fields, profile)
-                mapped_fields = _apply_llm_mappings(fields, profile, result, db)
-                logger.warning(
-                    "LLM mapping cache hit for task %s with %s mappings",
-                    task_id,
-                    len(result.mappings),
-                )
-                return mapped_fields
 
         prompt = _build_llm_prompt(fields, profile)
         raw_response = _request_llm_mapping(
@@ -734,8 +692,6 @@ def _map_fields_with_llm(
             db=db,
         )
         result = _validate_llm_response(raw_response, fields, profile)
-        if cache_context is not None:
-            write_mapping_cache_response(db, cache_context, fields, raw_response)
         mapped_fields = _apply_llm_mappings(fields, profile, result, db)
         logger.warning(
             "LLM mapping succeeded for task %s with %s mappings",

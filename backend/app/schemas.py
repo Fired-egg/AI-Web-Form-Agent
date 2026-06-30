@@ -128,6 +128,7 @@ class FormFieldResponse(BaseModel):
     name: str | None
     html_id: str | None
     current_value: str | None
+    options: list[dict[str, str | None]] = Field(default_factory=list)
     required: bool
     mapped_profile_key: str | None
     mapped_value: str | None

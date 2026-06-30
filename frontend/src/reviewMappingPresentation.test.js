@@ -5,6 +5,8 @@ import {
   buildReviewGroups,
   formatConfidence,
   formatMappingSummary,
+  getFieldChoiceOptions,
+  hasFieldChoiceOptions,
   isReviewableField,
 } from "./reviewMappingPresentation.js";
 
@@ -78,4 +80,21 @@ test("formatConfidence shows percentages and an unknown state", () => {
   assert.equal(formatConfidence(0.94), "94%");
   assert.equal(formatConfidence(1), "100%");
   assert.equal(formatConfidence(null), "Not scored");
+});
+
+test("field choice helpers expose structured select and radio options", () => {
+  const field = {
+    field_type: "radio",
+    options: [
+      { label: "Remote", value: "remote", selector: "#remote" },
+      { label: "Office", value: "office", selector: "#office" },
+    ],
+  };
+
+  assert.equal(hasFieldChoiceOptions(field), true);
+  assert.deepEqual(getFieldChoiceOptions(field), [
+    { label: "Remote", value: "remote" },
+    { label: "Office", value: "office" },
+  ]);
+  assert.equal(hasFieldChoiceOptions({ field_type: "text", options: [] }), false);
 });

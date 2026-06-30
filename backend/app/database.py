@@ -60,6 +60,7 @@ def _add_missing_form_field_columns() -> None:
         "name": "VARCHAR(500)",
         "html_id": "VARCHAR(500)",
         "current_value": "TEXT",
+        "options": "TEXT",
     }
 
     with engine.begin() as connection:

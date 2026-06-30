@@ -1,5 +1,6 @@
 """Task-related API endpoints."""
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -156,6 +157,7 @@ def save_extracted_fields(
                 name=field.name,
                 html_id=field.html_id,
                 current_value=field.current_value,
+                field_options=json.dumps(field.options, ensure_ascii=False),
                 required=field.required,
             )
         )

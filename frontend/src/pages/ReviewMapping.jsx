@@ -16,6 +16,8 @@ import {
   fieldSectionTitle,
   formatConfidence,
   formatMappingSummary,
+  getFieldChoiceOptions,
+  hasFieldChoiceOptions,
   needsRequiredInput,
   profileKeys,
   valueControlLabel,
@@ -130,6 +132,30 @@ function ReviewMapping() {
             <option value="">Not chosen</option>
             <option value="true">Checked</option>
             <option value="false">Unchecked</option>
+          </select>
+        </label>
+      );
+    }
+
+    if (hasFieldChoiceOptions(field)) {
+      return (
+        <label>
+          {label}
+          <select
+            aria-label={`${label} for ${fieldDisplayName(field)}`}
+            value={field.mapped_value || ""}
+            onChange={(event) => {
+              const mappedValue = event.target.value || null;
+              stageFieldValue(field.id, mappedValue);
+              updateField(field.id, { mapped_value: mappedValue });
+            }}
+          >
+            <option value="">Not chosen</option>
+            {getFieldChoiceOptions(field).map((option) => (
+              <option key={`${option.label}-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </label>
       );

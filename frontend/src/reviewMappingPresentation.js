@@ -104,3 +104,20 @@ export function valueControlLabel(field) {
   }
   return "Value to enter";
 }
+
+export function getFieldChoiceOptions(field) {
+  return (field.options || [])
+    .map((option) => ({
+      label: option.label || option.value || "",
+      value: option.value || option.label || "",
+    }))
+    .filter((option) => option.label || option.value);
+}
+
+export function hasFieldChoiceOptions(field) {
+  const fieldType = (field.field_type || "").toLowerCase();
+  return (
+    (fieldType === "radio" || fieldType === "select") &&
+    getFieldChoiceOptions(field).length > 0
+  );
+}

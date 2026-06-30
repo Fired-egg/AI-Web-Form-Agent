@@ -64,6 +64,27 @@ def _wait_for_network_idle(page: Page) -> None:
         pass
 
 
+def _checkbox_should_be_checked(value: str) -> bool | None:
+    """Return the intended checkbox state for a mapped value."""
+
+    normalized_value = value.lower()
+    if normalized_value in {"1", "true", "yes", "on", "checked"}:
+        return True
+    if normalized_value in {"0", "false", "no", "off", "unchecked"}:
+        return False
+    return None
+
+
+def _radio_selector_for_value(field: FormField) -> str:
+    """Return the radio option selector matching the mapped value."""
+
+    mapped_value = field.mapped_value or ""
+    for option in field.options:
+        if mapped_value in {option.get("label"), option.get("value")}:
+            return option.get("selector") or field.selector
+    return field.selector
+
+
 def _fill_fields(page: Page, fields: list[FormField]) -> None:
     """Fill mapped fields on the current page."""
 
@@ -76,11 +97,14 @@ def _fill_fields(page: Page, fields: list[FormField]) -> None:
 
         locator = page.locator(field.selector).first
         if field_type == "checkbox":
-            if field.mapped_value.lower() in {"1", "true", "yes", "on"}:
+            checked = _checkbox_should_be_checked(field.mapped_value)
+            if checked is True:
                 locator.check(timeout=5_000)
+            elif checked is False:
+                locator.uncheck(timeout=5_000)
             continue
         if field_type == "radio":
-            locator.check(timeout=5_000)
+            page.locator(_radio_selector_for_value(field)).first.check(timeout=5_000)
             continue
         if field_type == "select":
             try:

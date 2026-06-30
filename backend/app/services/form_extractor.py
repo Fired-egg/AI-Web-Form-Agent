@@ -1,6 +1,6 @@
 """Extract form controls and their metadata with Playwright."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from playwright.sync_api import Page
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -23,6 +23,7 @@ class ExtractedFormField:
     html_id: str | None
     current_value: str | None
     required: bool
+    options: list[dict[str, str | None]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -646,6 +647,51 @@ _EXTRACT_FIELDS_SCRIPT = """
     return normalizeText(element.value);
   }
 
+  function selectOptionsFor(element) {
+    return Array.from(element.options || [])
+      .map(option => ({
+        label:
+          normalizeText(option.textContent) ||
+          normalizeText(option.label) ||
+          normalizeText(option.value) ||
+          "",
+        value: option.value,
+        selector: null,
+      }))
+      .filter(option => option.label || option.value);
+  }
+
+  function radioOptionsFor(element) {
+    const root = element.form || document;
+    const candidates = Array.from(root.querySelectorAll('input[type="radio"]'))
+      .filter(candidate => {
+        if (!element.name) return candidate === element;
+        return candidate.name === element.name;
+      })
+      .filter(elementIsVisible);
+
+    return candidates
+      .map(candidate => ({
+        label:
+          cleanLabelText(labelFor(candidate)) ||
+          normalizeText(candidate.value) ||
+          selectorFor(candidate),
+        value: normalizeText(candidate.value),
+        selector: selectorFor(candidate),
+      }))
+      .filter(option => option.label || option.value);
+  }
+
+  function optionsFor(element, fieldType) {
+    if (fieldType === "select") {
+      return selectOptionsFor(element);
+    }
+    if (fieldType === "radio") {
+      return radioOptionsFor(element);
+    }
+    return [];
+  }
+
   const fields = [];
   const seen = new Set();
 
@@ -668,6 +714,7 @@ _EXTRACT_FIELDS_SCRIPT = """
       name: normalizeText(element.getAttribute("name")),
       html_id: normalizeText(element.id),
       current_value: currentValueFor(element, fieldType),
+      options: optionsFor(element, fieldType),
       required: requiredFor(element, label),
     };
     if (!hasMeaningfulMetadata(field)) return;

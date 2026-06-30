@@ -15,6 +15,7 @@ from app.database import Base, get_db
 from app import config
 from app.models import ActionLog, FormField, Profile, Task
 from app.routers.tasks import router as tasks_router
+from app.services.field_mapper import map_fields_with_llm
 from app.services.form_extractor import ExtractedFormField
 
 
@@ -208,6 +209,49 @@ def test_confirm_mapping_allows_required_values_after_manual_entry(
     assert task.status == "READY_TO_FILL"
 
 
+def test_manual_mapping_correction_is_reused_before_llm(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    task, field = create_task_with_field(session)
+
+    response = client.put(
+        f"/tasks/{task.id}/fields/{field.id}",
+        json={"mapped_profile_key": "email"},
+    )
+
+    assert response.status_code == 200
+
+    second_profile = Profile(
+        profile_name="Second endpoint profile",
+        full_name="Grace Hopper",
+        email="grace@example.com",
+    )
+    second_task = Task(
+        url="https://example.com/form",
+        profile=second_profile,
+        status="MAPPING_READY",
+    )
+    second_field = FormField(
+        task=second_task,
+        label="Where can we reach you?",
+        selector="#contact",
+        field_type="email",
+        required=True,
+    )
+    session.add(second_task)
+    session.add(second_field)
+    session.commit()
+
+    with patch("app.services.field_mapper._request_llm_mapping") as request_mapping:
+        mapped = map_fields_with_llm(second_task.id, session, provider="deepseek")
+
+    request_mapping.assert_not_called()
+    assert mapped[0].mapped_profile_key == "email"
+    assert mapped[0].mapped_value == "grace@example.com"
+    assert mapped[0].confidence == 1.0
+
+
 def test_fill_rejects_missing_required_values_before_browser_work(
     test_environment: tuple[TestClient, Session],
 ) -> None:
@@ -276,6 +320,45 @@ def test_analyze_pauses_when_login_is_required(
     )
     assert [log.action for log in logs] == ["analyze_form", "login_required"]
     assert logs[-1].status == "WAITING"
+
+
+def test_analyze_reuses_cached_form_analysis_for_same_url(
+    test_environment: tuple[TestClient, Session],
+) -> None:
+    client, session = test_environment
+    first_task = create_task_without_fields(session)
+    second_task = create_task_without_fields(session)
+    extracted_field = ExtractedFormField(
+        element_ref="field_1",
+        form_title="Contact information",
+        section_title=None,
+        label="Email",
+        selector="#email",
+        field_type="email",
+        placeholder=None,
+        name="email",
+        html_id="email",
+        current_value=None,
+        required=True,
+    )
+
+    with patch(
+        "app.routers.tasks.extract_form_analysis",
+        new=AsyncMock(
+            return_value=SimpleNamespace(
+                fields=[extracted_field],
+                login_required=False,
+            ),
+        ),
+    ) as extract_analysis:
+        first_response = client.post(f"/tasks/{first_task.id}/analyze")
+        second_response = client.post(f"/tasks/{second_task.id}/analyze")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert extract_analysis.await_count == 1
+    assert first_response.json()["form_fields"][0]["selector"] == "#email"
+    assert second_response.json()["form_fields"][0]["selector"] == "#email"
 
 
 def test_login_and_analyze_retries_original_url_after_manual_login(

@@ -49,9 +49,10 @@ class LLMFieldMapperTests(unittest.TestCase):
         label: str,
         selector: str,
         field_type: str = "text",
+        task_id: int | None = None,
     ) -> FormField:
         field = FormField(
-            task_id=self.task_id,
+            task_id=task_id or self.task_id,
             label=label,
             selector=selector,
             field_type=field_type,
@@ -87,6 +88,63 @@ class LLMFieldMapperTests(unittest.TestCase):
         self.assertEqual(mapped[0].mapped_profile_key, "email")
         self.assertEqual(mapped[0].mapped_value, "ada@example.com")
         self.assertEqual(mapped[0].confidence, 0.93)
+
+    def test_reuses_cached_mapping_for_same_form_and_current_profile_value(self) -> None:
+        first_field = self._add_field(
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+        llm_json = json.dumps(
+            {
+                "mappings": [
+                    {
+                        "field_id": first_field.id,
+                        "mapped_profile_key": "email",
+                        "confidence": 0.93,
+                    }
+                ]
+            }
+        )
+
+        second_profile = Profile(
+            profile_name="Second profile",
+            full_name="Grace Hopper",
+            email="grace@example.com",
+        )
+        second_task = Task(
+            url="https://example.com/form",
+            profile=second_profile,
+            status="MAPPING_READY",
+        )
+        self.db.add(second_task)
+        self.db.commit()
+        second_field = self._add_field(
+            task_id=second_task.id,
+            label="Where should we send updates?",
+            selector="#contact-destination",
+        )
+
+        with patch(
+            "app.services.field_mapper._request_llm_mapping",
+            return_value=llm_json,
+        ) as request_mapping:
+            first_mapping = map_fields_with_llm(
+                self.task_id,
+                self.db,
+                provider="deepseek",
+            )
+            second_mapping = map_fields_with_llm(
+                second_task.id,
+                self.db,
+                provider="deepseek",
+            )
+
+        request_mapping.assert_called_once()
+        self.assertEqual(first_mapping[0].mapped_value, "ada@example.com")
+        self.assertEqual(second_mapping[0].id, second_field.id)
+        self.assertEqual(second_mapping[0].mapped_profile_key, "email")
+        self.assertEqual(second_mapping[0].mapped_value, "grace@example.com")
+        self.assertEqual(second_mapping[0].confidence, 0.93)
 
     def test_llm_maps_split_name_fields_from_full_name(self) -> None:
         first_name = self._add_field(
@@ -280,6 +338,13 @@ class LLMFieldMapperTests(unittest.TestCase):
 
     def test_deepseek_request_uses_chat_completion_api(self) -> None:
         response = {
+            "usage": {
+                "prompt_tokens": 979,
+                "completion_tokens": 197,
+                "total_tokens": 1176,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 979,
+            },
             "choices": [
                 {
                     "message": {

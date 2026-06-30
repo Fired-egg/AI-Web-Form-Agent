@@ -32,6 +32,10 @@ from app.services.field_mapper import (
     map_fields_with_llm,
 )
 from app.services.form_extractor import ExtractedFormAnalysis, extract_form_analysis
+from app.services.form_analysis_cache import (
+    read_form_analysis_cache,
+    write_form_analysis_cache,
+)
 from app.services.browser_session import prepare_login_session
 from app.services.llm_provider_config import (
     get_provider_setup_hint,
@@ -40,6 +44,7 @@ from app.services.llm_provider_config import (
 )
 from app.services.llm_usage_service import list_llm_usage_logs, summarize_llm_usage
 from app.services.log_service import create_log
+from app.services.mapping_cache import save_user_mapping_override
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -248,7 +253,10 @@ async def analyze_task(
     db.commit()
 
     try:
-        analysis = await extract_form_analysis(task.url, task.profile_id)
+        analysis = read_form_analysis_cache(db, task.url)
+        if analysis is None:
+            analysis = await extract_form_analysis(task.url, task.profile_id)
+            write_form_analysis_cache(db, task.url, analysis)
         if analysis.login_required:
             mark_login_required(task, db)
         else:
@@ -425,6 +433,7 @@ def update_task_field_mapping(
         elif "mapped_value" not in changes:
             field.mapped_value = get_profile_value(task.profile, profile_key)
             field.confidence = 1.0 if field.mapped_value is not None else None
+        save_user_mapping_override(db, field, profile_key)
 
     if "mapped_value" in changes:
         field.mapped_value = changes["mapped_value"]

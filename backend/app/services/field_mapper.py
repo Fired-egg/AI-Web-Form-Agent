@@ -305,6 +305,7 @@ def _fields_payload(fields: list[FormField]) -> list[dict[str, object]]:
             "name": field.name,
             "html_id": field.html_id,
             "current_value": field.current_value,
+            "options": field.options,
             "required": field.required,
             "fillable": _is_fillable_field(field),
         }

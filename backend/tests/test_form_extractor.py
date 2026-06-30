@@ -64,3 +64,42 @@ def test_extractor_skips_actions_uploads_and_generic_internal_inputs(
     assert [field["label"] for field in fields] == ["姓名", "邮箱"]
     assert [field["placeholder"] for field in fields] == ["请输入", "请输入邮箱"]
 
+
+def test_extractor_returns_options_for_select_and_radio_fields(
+    tmp_path: Path,
+) -> None:
+    fields = extract_fields_from_html(
+        tmp_path,
+        """
+        <main>
+          <label>
+            Work authorization
+            <select id="authorization" name="authorization">
+              <option value="">Choose one</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </label>
+
+          <fieldset>
+            <legend>Preferred location</legend>
+            <label><input id="remote" type="radio" name="location" value="remote"> Remote</label>
+            <label><input id="office" type="radio" name="location" value="office"> Office</label>
+          </fieldset>
+        </main>
+        """,
+    )
+
+    select_field = next(field for field in fields if field["field_type"] == "select")
+    radio_field = next(field for field in fields if field["html_id"] == "remote")
+
+    assert select_field["options"] == [
+        {"label": "Choose one", "value": "", "selector": None},
+        {"label": "Yes", "value": "yes", "selector": None},
+        {"label": "No", "value": "no", "selector": None},
+    ]
+    assert radio_field["options"] == [
+        {"label": "Remote", "value": "remote", "selector": "#remote"},
+        {"label": "Office", "value": "office", "selector": "#office"},
+    ]
+

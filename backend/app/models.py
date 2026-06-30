@@ -1,5 +1,6 @@
 """SQLAlchemy models for profiles and form automation tasks."""
 
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -80,6 +81,7 @@ class FormField(Base):
     name: Mapped[Optional[str]] = mapped_column(String(500))
     html_id: Mapped[Optional[str]] = mapped_column(String(500))
     current_value: Mapped[Optional[str]] = mapped_column(Text)
+    field_options: Mapped[Optional[str]] = mapped_column("options", Text)
     required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mapped_profile_key: Mapped[Optional[str]] = mapped_column(String(100))
     mapped_value: Mapped[Optional[str]] = mapped_column(Text)
@@ -98,6 +100,30 @@ class FormField(Base):
         """Semantic alias for the input placeholder/help text."""
 
         return self.placeholder
+
+    @property
+    def options(self) -> list[dict[str, str | None]]:
+        """Structured choices for select/radio-like fields."""
+
+        if not self.field_options:
+            return []
+        try:
+            options = json.loads(self.field_options)
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(options, list):
+            return []
+        return [
+            option
+            for option in options
+            if isinstance(option, dict)
+        ]
+
+    @options.setter
+    def options(self, value: list[dict[str, str | None]] | None) -> None:
+        """Persist structured choices as JSON."""
+
+        self.field_options = json.dumps(value or [], ensure_ascii=False)
 
 
 class ActionLog(Base):

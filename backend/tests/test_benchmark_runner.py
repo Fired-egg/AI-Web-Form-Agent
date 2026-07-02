@@ -65,15 +65,54 @@ def test_score_case_calculates_extraction_mapping_and_login_metrics() -> None:
             "selector": "#email",
             "expected_profile_key": "email",
             "actual_profile_key": "phone",
-            "reason": "profile_key_mismatch",
+            "reason": "wrong_profile_key",
+            "detail": 'Expected "email" but mapped to "phone".',
         },
         {
             "selector": "#submit",
             "expected_profile_key": None,
             "actual_profile_key": None,
-            "reason": "missing_extraction",
+            "reason": "field_not_extracted",
+            "detail": 'Expected selector "#submit" to be extracted.',
         },
     ]
+
+
+def test_score_case_emits_stable_failure_reasons_with_details() -> None:
+    expected = {
+        "login_required": False,
+        "fields": [
+            {"selector": "#email", "profile_key": "email", "required": True},
+            {"selector": "#phone", "profile_key": "phone", "required": True},
+            {"selector": "#submit", "profile_key": None, "required": False},
+        ],
+    }
+    actual = {
+        "login_required": False,
+        "fields": [
+            {"selector": "#email", "profile_key": "full_name", "required": True},
+            {"selector": "#submit", "profile_key": "linkedin", "required": False},
+        ],
+        "llm_fallback_count": 0,
+        "fill_success": True,
+    }
+
+    result = score_case(expected, actual)
+
+    failures = result["failures"]
+    assert {failure["reason"] for failure in failures} == {
+        "field_not_extracted",
+        "wrong_profile_key",
+        "action_field_should_skip",
+    }
+
+    failures_by_selector = {failure["selector"]: failure for failure in failures}
+    assert failures_by_selector["#phone"]["reason"] == "field_not_extracted"
+    assert isinstance(failures_by_selector["#phone"]["detail"], str)
+    assert failures_by_selector["#email"]["reason"] == "wrong_profile_key"
+    assert isinstance(failures_by_selector["#email"]["detail"], str)
+    assert failures_by_selector["#submit"]["reason"] == "action_field_should_skip"
+    assert isinstance(failures_by_selector["#submit"]["detail"], str)
 
 
 @pytest.fixture

@@ -107,3 +107,39 @@ export function shouldDisableBenchmarkRun(mode, provider) {
   return provider.configured !== true;
 }
 
+const legacyFailureReasonMap = {
+  missing_extraction: "field_not_extracted",
+  profile_key_mismatch: "wrong_profile_key",
+  should_not_map: "action_field_should_skip",
+};
+
+const failureReasonLabels = {
+  field_not_extracted: "Field not extracted",
+  wrong_profile_key: "Wrong profile key",
+  missing_required_value: "Missing required value",
+  action_field_should_skip: "Action field should be skipped",
+  option_value_mismatch: "Option value mismatch",
+  low_confidence_mapping: "Low confidence mapping",
+  unexpected_extra_mapping: "Unexpected extra mapping",
+};
+
+function humanizeFailureReason(reason) {
+  if (!reason) {
+    return "Unknown reason";
+  }
+  const text = String(reason).replaceAll("_", " ");
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
+
+export function normalizeFailureReason(reason) {
+  if (!reason) {
+    return "";
+  }
+  return legacyFailureReasonMap[reason] || reason;
+}
+
+export function failureReasonLabel(reason) {
+  const normalized = normalizeFailureReason(reason);
+  return failureReasonLabels[normalized] || humanizeFailureReason(normalized);
+}
+

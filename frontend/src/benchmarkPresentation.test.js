@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import {
   benchmarkMetricOrder,
   caseFailureCount,
+  failureReasonLabel,
   formatMetricPercent,
   formatMetricValue,
   metricEntries,
+  normalizeFailureReason,
   selectDefaultProviderId,
   shouldDisableBenchmarkRun,
   summaryMetricEntries,
@@ -131,5 +133,19 @@ test("shouldDisableBenchmarkRun enforces provider configuration for llm mode", (
   assert.equal(shouldDisableBenchmarkRun("llm", null), true);
   assert.equal(shouldDisableBenchmarkRun("llm", { configured: false }), true);
   assert.equal(shouldDisableBenchmarkRun("llm", { configured: true }), false);
+});
+
+test("normalizeFailureReason maps legacy failure reasons to stable taxonomy strings", () => {
+  assert.equal(normalizeFailureReason("missing_extraction"), "field_not_extracted");
+  assert.equal(normalizeFailureReason("profile_key_mismatch"), "wrong_profile_key");
+  assert.equal(normalizeFailureReason("should_not_map"), "action_field_should_skip");
+  assert.equal(normalizeFailureReason("field_not_extracted"), "field_not_extracted");
+});
+
+test("failureReasonLabel returns human-readable English labels for stable failure reasons", () => {
+  assert.equal(failureReasonLabel("wrong_profile_key"), "Wrong profile key");
+  assert.equal(failureReasonLabel("field_not_extracted"), "Field not extracted");
+  assert.equal(failureReasonLabel("action_field_should_skip"), "Action field should be skipped");
+  assert.equal(failureReasonLabel("profile_key_mismatch"), "Wrong profile key");
 });
 

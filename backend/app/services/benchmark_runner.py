@@ -122,7 +122,15 @@ def score_case(
                     "selector": selector,
                     "expected_profile_key": expected_profile_key,
                     "actual_profile_key": None,
-                    "reason": "missing_extraction",
+                    "reason": "field_not_extracted",
+                    "detail": (
+                        f'Expected selector "{selector}" to be extracted'
+                        + (
+                            f' with profile key "{expected_profile_key}".'
+                            if expected_profile_key is not None
+                            else "."
+                        )
+                    ),
                 }
             )
             continue
@@ -134,7 +142,11 @@ def score_case(
                         "selector": selector,
                         "expected_profile_key": None,
                         "actual_profile_key": actual_profile_key,
-                        "reason": "should_not_map",
+                        "reason": "action_field_should_skip",
+                        "detail": (
+                            f'Expected selector "{selector}" to have no mapping, '
+                            f'but mapped to "{actual_profile_key}".'
+                        ),
                     }
                 )
             continue
@@ -147,7 +159,11 @@ def score_case(
                     "selector": selector,
                     "expected_profile_key": expected_profile_key,
                     "actual_profile_key": actual_profile_key,
-                    "reason": "profile_key_mismatch",
+                    "reason": "wrong_profile_key",
+                    "detail": (
+                        f'Expected "{expected_profile_key}" but mapped to '
+                        f'"{actual_profile_key}".'
+                    ),
                 }
             )
 

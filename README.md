@@ -206,16 +206,3 @@ The next improvements focus on reliability and presentation:
 5. Add a task timeline and debug report to Task Detail.
 6. Package the project with architecture, demo, and safety documentation.
 
-## Resume Summary
-
-```text
-AI Web Form Agent | Python, FastAPI, Playwright, React
-
-- Built a human-in-the-loop browser automation system that dynamically extracts
-  web form fields, maps reusable profile data, and fills forms through a real
-  Playwright browser session.
-- Implemented review-first safety controls, screenshots, action logs, and
-  approval checkpoints to prevent unsafe final submission.
-- Added reusable profile memory, mapping caches, admin action traces, and a
-  benchmark suite for evaluating extraction and mapping quality.
-```
